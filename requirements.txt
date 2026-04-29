@@ -1,14 +1,17 @@
 # 핵심 프레임워크
-streamlit
+streamlit==1.32.0
 
-# 데이터 처리 및 수치 계산
-pandas
-numpy
+# 데이터 처리 (버전 고정으로 안정성 확보)
+pandas>=2.0.0
+numpy<2.0.0
 
-# 시계열 분석 및 머신러닝
-sktime[all_extras]
+# 시계열 분석 (최신 버전으로 업그레이드)
+sktime>=0.26.0
 scikit-learn
 
-# 시각화
+# 시각화 및 통계
 plotly
-matplotlib
+statsmodels
+
+# 빌드 오류 방지를 위한 필수 도구
+setuptools
