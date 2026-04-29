@@ -79,13 +79,20 @@ def tracking_signal(y, yhat):
     return np.sum(err) / (mad + 1e-8)
 
 def get_best_forecast(train, horizon, model_type):
-    """
-    상세 분석용: 예측값뿐만 아니라 신뢰구간과 추세를 포함한 딕셔너리 반환
-    """
-    train = pd.Series(train).astype(float)
+    # 1. NaN 제거 (ARIMA 오류 방지 핵심)
+    train = pd.Series(train).astype(float).dropna() 
+    
+    # 2. 결과 딕셔너리 초기화 (함수 시작 시점에 위치해야 함)
     results = {'mean': None, 'upper': None, 'lower': None, 'trend_slope': 0}
     
-    # 추세 계산 (기울기)
+    if len(train) < 5: # 최소 데이터 확인
+        last_val = train.iloc[-1] if not train.empty else 0
+        results.update({'mean': np.repeat(last_val, horizon), 
+                        'upper': np.repeat(last_val, horizon), 
+                        'lower': np.repeat(last_val, horizon)})
+        return results
+
+    # 추세 계산
     x = np.arange(len(train))
     slope, _ = np.polyfit(x, train.values, 1)
     results['trend_slope'] = slope
@@ -104,22 +111,28 @@ def get_best_forecast(train, horizon, model_type):
             results['lower'] = results['mean'] * 0.95
 
         elif model_type == "Holt-Winters":
-            model = ExponentialSmoothing(train, trend="add", seasonal="add", seasonal_periods=12).fit()
+            # 데이터가 부족할 경우 계절성 제외 로직 추가
+            seasonal_p = 12 if len(train) >= 24 else None
+            model = ExponentialSmoothing(train, trend="add", seasonal="add" if seasonal_p else None, 
+                                         seasonal_periods=seasonal_p).fit()
             forecast = model.forecast(horizon)
             results['mean'] = forecast.values
             results['upper'] = forecast.values + (train.std() * 1.96 / np.sqrt(len(train)))
             results['lower'] = forecast.values - (train.std() * 1.96 / np.sqrt(len(train)))
 
         elif model_type in ["ARIMA", "SARIMA"]:
+            # pmdarima의 auto_arima 사용
             model = auto_arima(train, seasonal=(model_type=="SARIMA"), m=12, 
-                               stepwise=True, suppress_warnings=True, max_p=2, max_q=2)
+                               stepwise=True, suppress_warnings=True, 
+                               max_p=2, max_q=2, error_action='ignore')
             forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
             results['mean'] = forecast
             results['lower'] = conf_int[:, 0]
             results['upper'] = conf_int[:, 1]
             
-    except:
-        # 실패 시 Naive 방식
+    except Exception as e:
+        # 에러 발생 시 로그 출력 및 기본값 반환
+        print(f"Model Error: {e}") 
         last_val = train.iloc[-1]
         results['mean'] = np.repeat(last_val, horizon)
         results['upper'] = results['mean'] * 1.1
@@ -185,12 +198,19 @@ with top_left:
                 col_stat2.info("정상성 확보" if stat_res['is_stationary'] else "비정상(차분 권장)")
                 
                 # 시계열 분해
-                dec = decompose_series(proc_values)
                 if dec:
                     fig_dec = go.Figure()
-                    fig_dec.add_trace(go.Scatter(x=dec.trend.index, y=dec.trend, name="Trend(추세)"))
-                    fig_dec.add_trace(go.Scatter(x=dec.seasonal.index, y=dec.seasonal, name="Seasonal(계절성)"))
-                    fig_dec.update_layout(height=200, title="시계열 분해 요소", margin=dict(t=30, b=10))
+                    # 확인: dec.trend는 부드러운 선, dec.seasonal은 반복되는 패턴이어야 합니다.
+                    fig_dec.add_trace(go.Scatter(x=dec.trend.index, y=dec.trend, 
+                                                 name="Trend(추세)", line=dict(color="royalblue")))
+                    fig_dec.add_trace(go.Scatter(x=dec.seasonal.index, y=dec.seasonal, 
+                                                 name="Seasonal(계절성)", line=dict(color="lightskyblue")))
+                    
+                    # 만약 차트에서 여전히 반대로 보인다면, 아래와 같이 데이터 자체를 확인해 보세요.
+                    # st.write(dec.trend.head()) 
+                    
+                    fig_dec.update_layout(height=250, title="시계열 분해 요소", 
+                                          margin=dict(t=30, b=10), legend=dict(orientation="h", y=1.1))
                     st.plotly_chart(fig_dec, use_container_width=True)
 
 with top_right:
