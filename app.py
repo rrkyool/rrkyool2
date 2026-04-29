@@ -13,7 +13,14 @@ from statsmodels.tsa.stattools import adfuller, acf
 # -----------------------------
 # 1. 분석 핵심 함수 정의
 # -----------------------------
-
+def load_data(file):
+    for enc in ["utf-8", "cp949", "euc-kr"]:
+        try:
+            file.seek(0)
+            return pd.read_csv(file, encoding=enc)
+        except: continue
+    return None
+    
 def find_optimal_period(series):
     """ACF를 분석하여 데이터의 잠재적 계절 주기를 자동 탐지"""
     series = series.dropna()
@@ -26,6 +33,18 @@ def find_optimal_period(series):
             return int(optimal_lag)
     return 1
 
+def hampel_filter(series, window=5, n=3):
+    series = series.astype(float)
+    new = series.copy()
+    for i in range(window, len(series)-window):
+        win = series.iloc[i-window:i+window]
+        med = np.median(win)
+        mad = np.median(np.abs(win-med))
+        if mad == 0: continue
+        if abs(series.iloc[i]-med) > n*mad:
+            new.iloc[i] = med
+    return new
+    
 def run_stationarity_test(series):
     """ADF 정상성 검정"""
     res = adfuller(series.dropna())
@@ -96,7 +115,13 @@ def get_advanced_forecast(train, horizon, model_type, period=12):
 # 2. 메인 앱 설정
 # -----------------------------
 st.set_page_config(layout="wide")
-st.title("📈 고도화된 수요 예측 분석 시스템")
+
+header_left, header_right = st.columns([4, 1])
+with header_left:
+    st.title("📈 시계열 분석 Project1 수요 예측")
+with header_right:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("C321032 박하율")
 
 if "results_df" not in st.session_state:
     st.session_state.results_df = pd.DataFrame(columns=["모델", "MAE", "MdRAE", "TS", "예측평균"])
