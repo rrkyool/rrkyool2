@@ -198,6 +198,7 @@ with top_left:
                 col_stat2.info("정상성 확보" if stat_res['is_stationary'] else "비정상(차분 권장)")
                 
                 # 시계열 분해
+                dec = decompose_series(proc_values)
                 if dec:
                     fig_dec = go.Figure()
                     # 확인: dec.trend는 부드러운 선, dec.seasonal은 반복되는 패턴이어야 합니다.
