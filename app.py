@@ -295,7 +295,6 @@ if not st.session_state.results_df.empty:
             ### 📋 상세 예측 리포트 ({last_model})
             - **장기 추세**: 현재 데이터는 전반적으로 **{trend_txt}** 추세에 있습니다.
             - **신뢰 구간**: 예측값은 약 **{res['lower'].mean():.1f} ~ {res['upper'].mean():.1f}** 사이에서 변동할 가능성이 높습니다.
-            - **코멘트**: 말단 왜곡을 보정한 지수평활 전처리가 적용되었습니다.
             """)
             
 elif file:
