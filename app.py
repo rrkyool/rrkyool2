@@ -3,6 +3,27 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
+from sktime.transformations.series.outlier_detection import HampelFilter
+from sktime.transformations.series.impute import Imputer
+from sktime.transformations.series.exp_smoothing import ExponentialSmoothingTransformer
+
+from sktime.performance_metrics.forecasting import (
+    mean_absolute_error, 
+    median_relative_absolute_error,
+    mean_absolute_scaled_error
+)
+
+from sktime.forecasting.naive import NaiveForecaster
+from sktime.forecasting.exp_smoothing import ExponentialSmoothing
+from sktime.forecasting.arima import AutoARIMA
+from sktime.forecasting.base import ForecastingHorizon
+
+from sktime.forecasting.model_selection import forecasting_efficiency_stats, evaluate
+from sktime.forecasting.model_selection import SlidingWindowSplitter, ExpandingWindowSplitter
+
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX # SARIMA 작동을 위해 추가
@@ -38,139 +59,154 @@ def load_data(file):
         except: continue
     return None
 
+#결측치 처리
+def fill_missing_values(series, method='linear'):
+    imputer = Imputer(method=method)
+    filled_series = imputer.fit_transform(series)
+    return filled_series
+
+#이상치 처리
 def hampel_filter(series, window=5, n=3):
-    series = series.astype(float)
-    new = series.copy()
-    for i in range(window, len(series)-window):
-        win = series.iloc[i-window:i+window]
-        med = np.median(win)
-        mad = np.median(np.abs(win-med))
-        if mad == 0: continue
-        if abs(series.iloc[i]-med) > n*mad:
-            new.iloc[i] = med
-    return new
+    transformer = HampelFilter(window_length=2 * window + 1, n_sigma=n, return_inline=True)
+    new_series = transformer.fit_transform(series)
+    return new_series
 
-def fft_denoise(signal, keep_ratio=0.3):
-    fft = np.fft.fft(signal)
-    n = len(fft)
-    cutoff = int(n * keep_ratio)
-    fft[cutoff:n-cutoff] = 0
-    return np.fft.ifft(fft).real
+#디노이징
+def denoise_series(series, smoothing_level=0.5):
+    """
+    FFT 대신 sktime의 지수 평활법을 사용하여 노이즈를 제거합니다.
+    이 방법은 데이터의 최근 추세를 더 잘 반영하며 말단 왜곡이 적습니다.
+    """
+    # smoothing_level (alpha): 0에 가까울수록 매끄러워지고(노이즈 제거 강함), 
+    # 1에 가까울수록 원본 데이터에 가깝게 유지됩니다.
+    transformer = ExponentialSmoothingTransformer(smoothing_level=smoothing_level)
+    
+    # 데이터를 학습하고 변환합니다.
+    # sktime 트랜스포머는 입력 데이터의 인덱스와 형식을 보존합니다.
+    denoised_series = transformer.fit_transform(series)
+    
+    return denoised_series
 
-def mae(y, yhat): return np.mean(np.abs(np.array(y) - np.array(yhat)))
+#평가지표
+def mae(y_true, y_pred):
+    return mean_absolute_error(y_true, y_pred)
 
-def mdrae(y, yhat):
-    y, yhat = np.array(y), np.array(yhat)
-    naive = y[1:]; y_prev = y[:-1]
-    denom = np.abs(naive - y_prev)
-    num = np.abs(naive - yhat[1:])
-    return np.median(num / (denom + 1e-8))
+def mdrae(y_true, y_pred, y_train=None):
+    return median_relative_absolute_error(y_true, y_pred)
 
-def tracking_signal(y, yhat):
-    err = np.array(y) - np.array(yhat)
-    mad = np.mean(np.abs(err))
-    return np.sum(err) / (mad + 1e-8)
+def tracking_signal(y_true, y_pred):
+    errors = y_true - y_pred
+    mad = mean_absolute_error(y_true, y_pred)
+    if mad == 0: return 0
+    return errors.sum() / mad
 
+#예측 모델 적용
 def get_best_forecast(train, horizon, model_type):
     train = pd.Series(train).astype(float)
-    # 데이터 부족 여부 판단 (주기 12 기준, 최소 24개 이상 권장)
     m_val = 12
-    is_data_insufficient = len(train) < 2 * m_val
+    fh = np.arange(1, horizon + 1) # 예측 구간 설정 (1부터 horizon까지)
     
+    # 2. 모델 타입별 로직
     if model_type == "이동평균":
-        val = train.rolling(window=12, min_periods=1).mean().iloc[-1]
-        return np.repeat(val, horizon)
-    
+        # sktime의 NaiveForecaster는 이동평균(window)을 지원합니다.
+        forecaster = NaiveForecaster(strategy="mean", window_length=12)
+        
     elif model_type == "지수평활":
-        model = ExponentialSmoothing(train).fit()
-        return model.forecast(horizon).values
-    
+        # 기본적인 단순 지수평활
+        forecaster = ExponentialSmoothing(trend=None, seasonal=None)
+        
     elif model_type == "Holt-Winters":
-        try: 
-            model = ExponentialSmoothing(train, trend="add", seasonal="mul", seasonal_periods=12).fit()
-        except: 
-            model = ExponentialSmoothing(train, trend="add", seasonal="add", seasonal_periods=12).fit()
-        return model.forecast(horizon).values
-    
+        # 데이터 양에 따른 자동 대응
+        if len(train) < 2 * m_val:
+            st.warning("⚠️ 데이터 부족으로 계절성 제외, 추세만 반영합니다.")
+            forecaster = ExponentialSmoothing(trend='add', seasonal=None)
+        else:
+            # sktime은 자동으로 최적 파라미터를 찾으려 시도합니다.
+            forecaster = ExponentialSmoothing(trend='add', seasonal='add', sp=m_val)
+            
     elif model_type in ["ARIMA", "SARIMA"]:
         is_seasonal = (model_type == "SARIMA")
-        
-        # SARIMA 선택 시 데이터가 부족한 경우 처리
-        if is_seasonal and is_data_insufficient:
-            st.warning(f"⚠️ 계절성 분석을 위한 데이터가 부족합니다. (현재 데이터: {len(train)}개, 최소 필요: {2*m_val}개)")
-            st.info("안정적인 분석을 위해 일반 ARIMA 모델로 자동 전환하여 결과를 생성합니다.")
-            is_seasonal = False # 계절성 비활성화
+        if is_seasonal and len(train) < 2 * m_val:
+            st.info("💡 데이터 부족으로 ARIMA(비계절성)로 자동 전환합니다.")
+            is_seasonal = False
             
-        try:
-            step_m = auto_arima(
-                train, 
-                seasonal=is_seasonal, 
-                m=m_val if is_seasonal else 1, 
-                stepwise=True, 
-                suppress_warnings=True, 
-                error_action="ignore",
-                max_p=3, max_q=3,
-                trace=False
-            )
-            return step_m.predict(n_periods=horizon).values
-        except Exception as e:
-            # 최종 예외 처리
-            step_m = auto_arima(train, seasonal=False, stepwise=True)
-            return step_m.predict(n_periods=horizon).values
-            
-    return np.repeat(train.iloc[-1], horizon)
+        # 최적화와 속도의 균형을 맞춘 AutoARIMA 설정
+        forecaster = AutoARIMA(
+            sp=m_val if is_seasonal else 1,
+            suppress_warnings=True,
+            error_action="ignore",
+            # 속도 향상을 위한 파라미터 제한
+            max_p=3, max_q=3, 
+            seasonal=is_seasonal,
+            stepwise=True  # 모든 조합을 다 검사하지 않고 효율적으로 탐색
+        )
 
-# -----------------------------
-# [함수 수정] 내부 연산 속도 최적화
-# -----------------------------
+    # 3. 학습 및 예측
+    try:
+        forecaster.fit(train)
+        y_pred = forecaster.predict(fh)
+        return y_pred.values
+    except Exception as e:
+        st.error(f"모델 학습 오류: {e}")
+        return np.repeat(train.iloc[-1], horizon)
 
-def rolling_forecast(train, test, model_type):
-    history = list(train)
-    preds = []
-    window_size = len(train)
+
+#예측 평가 구간
+def run_backtest(train, test, model_obj, strategy="rolling"):
+    if strategy == "rolling":
+        cv = SlidingWindowSplitter(window_length=len(train), step_length=1)
+    else:
+        cv = ExpandingWindowSplitter(initial_window=len(train), step_length=1)
     
-    for t in range(len(test)):
-        current_train = history[-window_size:]
-        
-        if model_type == "ARIMA":
-            # 속도 개선: order 고정 및 탐색 생략
-            model = ARIMA(current_train, order=(1,1,1)).fit()
-            yhat = model.forecast(steps=1)[0]
-        elif model_type == "SARIMA":
-            if len(current_train) < 24:
-                model = ARIMA(current_train, order=(1,1,1)).fit()
-            else:
-                # 속도 개선: disp=False 및 반복 횟수 최적화
-                model = SARIMAX(current_train, order=(1,1,1), seasonal_order=(1,1,1,12)).fit(disp=False)
-            yhat = model.forecast(steps=1)[0]
-        else:
-            yhat = get_best_forecast(current_train, 1, model_type)[0]
-            
-        preds.append(yhat)
-        history.append(test.iloc[t])
-    return np.array(preds)
+    y_full = pd.concat([train, test])
+    
+    results = evaluate(
+        forecaster=model_obj, 
+        cv=cv, 
+        y=y_full, 
+        strategy="refit", # 매번 모델을 다시 최적화 (파라미터 고정 문제 해결)
+        return_data=True
+    )
+    
+    return results["y_pred"].apply(lambda x: x.iloc[0]).values
 
-def expanding_forecast(train, test, model_type):
-    preds = []
-    for i in range(len(test)):
-        # Expanding: 데이터가 1개씩 계속 누적됨
-        hist = pd.concat([train, test[:i]])
+#정상성 검정
+def run_statistical_tests(series):
+    """
+    ADF(정상성) 및 Ljung-Box(백색잡음) 검정을 수행하고 결과를 요약합니다.
+    """
+    results = []
+    
+    # 1. ADF Test (정상성 검정)
+    # sktime 데이터는 Series 형태이므로 바로 statsmodels 함수에 전달 가능합니다.
+    adf_result = adfuller(series.dropna())
+    adf_p_value = adf_result[1]
+    is_stationary = adf_p_value < 0.05
+    
+    results.append({
+        "검정명": "ADF (정상성)",
+        "귀무가설(H0)": "단위근 존재 (비정상)",
+        "p-value": f"{adf_p_value:.4f}",
+        "해석": "정상성 확보" if is_stationary else "비정상 (차분 필요)"
+    })
+    
+    # 2. Ljung-Box Test (자기상관/백색잡음 검정)
+    # lag=10 정도로 설정하여 전반적인 패턴 존재 여부를 확인합니다.
+    lb_result = acorr_ljungbox(series.dropna(), lags=[1, 10], return_df=True)
+    
+    for lag in [1, 10]:
+        lb_p_value = lb_result.loc[lag, 'lb_pvalue']
+        is_pattern = lb_p_value < 0.05
         
-        if model_type == "ARIMA":
-            model = ARIMA(hist, order=(1,1,1)).fit()
-            yhat = model.forecast(steps=1)[0]
-        elif model_type == "SARIMA":
-            if len(hist) < 24:
-                model = ARIMA(hist, order=(1,1,1)).fit()
-            else:
-                model = SARIMAX(hist, order=(1,1,1), seasonal_order=(1,1,1,12)).fit(disp=False)
-            yhat = model.forecast(steps=1)[0]
-        else:
-            yhat = get_best_forecast(hist, 1, model_type)[0]
-            
-        preds.append(yhat)
-    return np.array(preds)
-
+        results.append({
+            "검정명": f"Ljung-Box (lag={lag})",
+            "귀무가설(H0)": "자기상관 없음 (백색잡음)",
+            "p-value": f"{lb_p_value:.4f}",
+            "해석": "패턴 존재 (모형 개선 가능)" if is_pattern else "백색잡음 (추가 모형 불필요)"
+        })
+        
+    return pd.DataFrame(results)
+    
 # -----------------------------
 # 상단 레이아웃
 # -----------------------------
@@ -180,23 +216,64 @@ with top_left:
     with st.container(border=True):
         st.subheader("📂 데이터 업로드")
         file = st.file_uploader("CSV 파일을 선택하세요", label_visibility="collapsed")
+        
         if file:
-            df_raw_data = load_data(file)
+            # 1. 데이터 로드 (기본적인 구조 유지)
+            df_raw_data = pd.read_csv(file) 
+            
             if df_raw_data is not None:
                 date_col = df_raw_data.columns[0]
                 value_col = df_raw_data.select_dtypes(include=np.number).columns[0]
+                
                 df_raw_data[date_col] = pd.to_datetime(df_raw_data[date_col])
                 df_raw_data = df_raw_data.sort_values(date_col).set_index(date_col)
                 
+                # 원본 데이터 보존
                 raw_values = df_raw_data[value_col].copy()
-                proc_values = raw_values.interpolate().pipe(hampel_filter).pipe(fft_denoise)
-                df_raw_data[value_col] = proc_values
                 
+                # --- [수정 부분 1: sktime 기반 전처리 파이프라인] ---
+                # 1) 결측치 보간 -> 2) 이상치 제거 -> 3) 지수평활 디노이징 (FFT 대체)
+                proc_values = (
+                    fill_missing_values(raw_values)
+                    .pipe(apply_hampel_filter)
+                    .pipe(denoise_series, smoothing_level=0.3) # 말단 왜곡을 방지하는 지수평활
+                )
+                
+                # 전처리된 데이터를 데이터프레임에 반영
+                df_raw_data["processed"] = proc_values
+                
+                # 2. 시각화 (원본 vs 전처리)
                 fig_prep = go.Figure()
-                fig_prep.add_trace(go.Scatter(x=df_raw_data.index, y=raw_values, name="원본", line=dict(color="gray", width=1), opacity=0.4))
-                fig_prep.add_trace(go.Scatter(x=df_raw_data.index, y=proc_values, name="전처리", line=dict(color="royalblue")))
-                fig_prep.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10))
+                fig_prep.add_trace(go.Scatter(
+                    x=df_raw_data.index, y=raw_values, 
+                    name="원본", line=dict(color="lightgray", width=1), opacity=0.6
+                ))
+                fig_prep.add_trace(go.Scatter(
+                    x=df_raw_data.index, y=proc_values, 
+                    name="전처리", line=dict(color="royalblue", width=2)
+                ))
+                fig_prep.update_layout(
+                    height=250, # 정상성 표 공간 확보를 위해 약간 조정 가능
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
                 st.plotly_chart(fig_prep, use_container_width=True)
+                
+                # --- [정상성 검정 결과 출력] ---
+                st.markdown("---")
+                st.write("🔍 **데이터 통계적 특성 검정**")
+                
+                test_results = run_statistical_tests(proc_values)
+                
+                st.dataframe(
+                    test_results, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "p-value": st.column_config.TextColumn("p-value", width="small"),
+                        "해석": st.column_config.TextColumn("해석", width="medium")
+                    }
+                )
 
 with top_right:
     with st.container(border=True):
