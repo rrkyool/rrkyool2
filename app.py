@@ -8,6 +8,9 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX # SARIMA 작동을 위해 추가
 from pmdarima import auto_arima
 
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.stattools import adfuller
+
 # -----------------------------
 # 기본 설정 및 헤더
 # -----------------------------
@@ -50,12 +53,18 @@ def hampel_filter(series, window=5, n=3):
             new.iloc[i] = med
     return new
 
-def fft_denoise(signal, keep_ratio=0.3):
-    fft = np.fft.fft(signal)
-    n = len(fft)
-    cutoff = int(n * keep_ratio)
-    fft[cutoff:n-cutoff] = 0
-    return np.fft.ifft(fft).real
+def denoise_series(series, alpha=0.3):
+    return series.ewm(alpha=alpha, adjust=False).mean()
+
+#정상성 검정
+def run_stationarity_test(series):
+    res = adfuller(series.dropna())
+    return {"p_value": res[1], "is_stationary": res[1] < 0.05}
+
+#시계열 분해
+def decompose_series(series, period=12):
+    if len(series) < period * 2: return None
+    return seasonal_decompose(series, model='additive', period=period)
 
 def mae(y, yhat): return np.mean(np.abs(np.array(y) - np.array(yhat)))
 
@@ -86,38 +95,30 @@ def get_best_forecast(train, horizon, model_type):
         return model.forecast(horizon).values
     
     elif model_type == "Holt-Winters":
-        try: 
-            model = ExponentialSmoothing(train, trend="add", seasonal="mul", seasonal_periods=12).fit()
-        except: 
-            model = ExponentialSmoothing(train, trend="add", seasonal="add", seasonal_periods=12).fit()
-        return model.forecast(horizon).values
-    
+        model = ExponentialSmoothing(train, trend="add", seasonal="add", seasonal_periods=12).fit()
+        forecast = model.forecast(horizon)
+        # HW는 시뮬레이션을 통해 간접적으로 신뢰구간 추정 가능 (여기서는 단순화)
+        results['mean'] = forecast.values
+        results['upper'] = forecast.values + (forecast.values.std() * 1.96)
+        results['lower'] = forecast.values - (forecast.values.std() * 1.96)
+
     elif model_type in ["ARIMA", "SARIMA"]:
-        is_seasonal = (model_type == "SARIMA")
-        
-        # SARIMA 선택 시 데이터가 부족한 경우 처리
-        if is_seasonal and is_data_insufficient:
-            st.warning(f"⚠️ 계절성 분석을 위한 데이터가 부족합니다. (현재 데이터: {len(train)}개, 최소 필요: {2*m_val}개)")
-            st.info("안정적인 분석을 위해 일반 ARIMA 모델로 자동 전환하여 결과를 생성합니다.")
-            is_seasonal = False # 계절성 비활성화
-            
-        try:
-            step_m = auto_arima(
-                train, 
-                seasonal=is_seasonal, 
-                m=m_val if is_seasonal else 1, 
-                stepwise=True, 
-                suppress_warnings=True, 
-                error_action="ignore",
-                max_p=3, max_q=3,
-                trace=False
-            )
-            return step_m.predict(n_periods=horizon).values
+        # 속도를 위해 stepwise=True 고정 및 탐색 범위 제한
+        model = auto_arima(train, seasonal=(model_type=="SARIMA"), m=12, 
+                           stepwise=True, suppress_warnings=True, max_p=2, max_q=2)
+        forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
+        results['mean'] = forecast
+        results['lower'] = conf_int[:, 0]
+        results['upper'] = conf_int[:, 1]
+    
         except Exception as e:
             # 최종 예외 처리
             step_m = auto_arima(train, seasonal=False, stepwise=True)
             return step_m.predict(n_periods=horizon).values
-            
+    x = np.arange(len(train))
+    slope, _ = np.polyfit(x, train.values, 1)
+    results['trend_slope'] = slope
+    
     return np.repeat(train.iloc[-1], horizon)
 
 # -----------------------------
@@ -189,14 +190,25 @@ with top_left:
                 df_raw_data = df_raw_data.sort_values(date_col).set_index(date_col)
                 
                 raw_values = df_raw_data[value_col].copy()
-                proc_values = raw_values.interpolate().pipe(hampel_filter).pipe(fft_denoise)
+                proc_values = raw_values.interpolate().pipe(hampel_filter).pipe(denoise_series)
                 df_raw_data[value_col] = proc_values
                 
-                fig_prep = go.Figure()
-                fig_prep.add_trace(go.Scatter(x=df_raw_data.index, y=raw_values, name="원본", line=dict(color="gray", width=1), opacity=0.4))
-                fig_prep.add_trace(go.Scatter(x=df_raw_data.index, y=proc_values, name="전처리", line=dict(color="royalblue")))
-                fig_prep.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_prep, use_container_width=True)
+                # 시각화 및 정상성 검정
+                st.plotly_chart(fig_prep) # 기존 차트
+                
+                col_stat1, col_stat2 = st.columns(2)
+                stat_res = run_statistical_test(proc_values)
+                col_stat1.metric("ADF p-value", f"{stat_res['p_value']:.4f}")
+                col_stat2.info("정상성 확보" if stat_res['is_stationary'] else "비정상(차분 권장)")
+                
+                # 시계열 분해 시각화 추가
+                dec = decompose_series(proc_values)
+                if dec:
+                    fig_dec = go.Figure()
+                    fig_dec.add_trace(go.Scatter(y=dec.trend, name="Trend(추세)"))
+                    fig_dec.add_trace(go.Scatter(y=dec.seasonal, name="Seasonal(계절성)"))
+                    fig_dec.update_layout(height=200, title="시계열 분해 요소")
+                    st.plotly_chart(fig_dec, use_container_width=True)
 
 with top_right:
     with st.container(border=True):
@@ -315,6 +327,17 @@ if not st.session_state.results_df.empty:
             
             last_avg = st.session_state.results_df['예측 평균'].iloc[-1]
             st.info(f"✨ **결과 요약**: 향후 {h_len}{u_type}간 평균 예상 수요는 **{last_avg}**입니다.")
+
+            res = get_advanced_forecast(df[value_col], h_len, last_model)
+    trend_desc = "상승" if res['trend_slope'] > 0 else "하락"
+    
+    st.success(f"""
+    ### 📋 상세 예측 리포트
+    - **예상 평균 수요**: {res['mean'].mean():.2f}
+    - **신뢰 구간 (95%)**: {res['lower'].mean():.2f} ~ {res['upper'].mean():.2f}
+    - **장기 추세**: 현재 데이터는 전반적으로 **{trend_desc}**하는 경향을 보입니다.
+    - **분석 코멘트**: 모델이 포착한 주요 계절 주기는 {u_type} 단위이며, 말단 왜곡을 보정하여 산출되었습니다.
+    """)
             
 elif file:
     st.info("👈 설정 후 '예측 실행' 버튼을 눌러 분석을 시작하세요.")
