@@ -3,10 +3,16 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
+# 1. 이상치 처리 (Hampel Filter)
 from sktime.transformations.series.outlier_detection import HampelFilter
-from sktime.transformations.series.impute import Imputer
-from sktime.transformations.series.smooth import ExponentialSmoothingTransformer
 
+# 2. 결측치 처리 (Imputer)
+from sktime.transformations.series.impute import Imputer
+
+# 3. 디노이징/평활화 (Exponential Smoothing) - 여기가 에러 난 부분
+from sktime.transformations.series.exponent_smoothing import ExponentialSmoothingTransformer
+
+# 4. 평가지표
 from sktime.performance_metrics.forecasting import (
     mean_absolute_error, 
     median_relative_absolute_error,
