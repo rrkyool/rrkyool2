@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 
 from sktime.transformations.series.outlier_detection import HampelFilter
 from sktime.transformations.series.impute import Imputer
-from sktime.transformations.series.exp_smoothing import ExponentialSmoothingTransformer
+from sktime.transformations.series.exponent_smoothing import ExponentialSmoothingTransformer
 
 from sktime.performance_metrics.forecasting import (
     mean_absolute_error, 
