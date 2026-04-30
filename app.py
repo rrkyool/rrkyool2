@@ -383,37 +383,60 @@ with st.sidebar:
             horizon_val = st.number_input("예측 기간 숫자", min_value=1, value=7, key="in_horizon")
             time_unit = st.selectbox("시간 단위 선택", ["일", "주", "월", "년"], key="sel_unit")
     
+            # -----------------------------
+            # [수정] 버튼 클릭 및 예측 실행 로직
+            # -----------------------------
             if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
                 
-                # [수정] 데이터의 빈도 파악 및 실제 예측 Step 계산
-                data_freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') else "D"
-                actual_steps = convert_horizon(horizon_val, time_unit, data_freq)
+                # 1. 실제 데이터 포인트(Step) 환산
+                # 데이터 인덱스에서 실제 빈도 추출 (기본값 'D')
+                data_freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') and ps.index.inferred_freq else "D"
+                
+                # [핵심] 사용자가 입력한 숫자(horizon_val)와 단위(time_unit)를 데이터 개수(actual_steps)로 변환
+                def get_actual_steps(val, unit, freq):
+                    multipliers = {"일": 1, "주": 7, "월": 30, "년": 365}
+                    # 만약 데이터 자체가 월간 데이터라면 단위를 1로 고정
+                    if 'M' in freq or 'm' in freq:
+                        multipliers = {"일": 1, "주": 1, "월": 1, "년": 12} 
+                    return int(val * multipliers.get(unit, 1))
+            
+                actual_steps = get_actual_steps(horizon_val, time_unit, data_freq)
                 
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
                 
-                # 1. 모델 예측 (평가용은 test_p 길이에 맞춤)
+                # 2. 성능 평가용 예측 (Test 데이터 길이에 맞춤)
                 if method == "Rolling":
                     y_pred = rolling_forecast_fast(train_p, test_p, model_type)
                 else:
-                    # Block 방식에서도 사용자가 설정한 시평(actual_steps) 반영
                     y_pred = block_forecast(train_p, test_p, model_type, actual_steps)
                 
-                # 2. 누적 로그 및 시각화 저장
+                # 3. 로그 및 누적 시각화 데이터 저장
                 metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
                 st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
                 
                 if "eval_preds" not in st.session_state: st.session_state["eval_preds"] = {}
                 st.session_state["eval_preds"][f"{model_type}_{method}"] = y_pred
                 
-                # 3. [핵심] 최종 미래 예측 (사용자가 입력한 '진짜 시평' 반영)
+                # 4. [중요] 미래 예측 (환산된 actual_steps 적용)
                 time_info = analyze_time_index(ps.index)
-                # actual_steps를 horizon 인자로 전달!
-                st.session_state["forecast_res"] = get_forecast(ps, actual_steps, model_type, time_info['suggested_periods'][0])
-                st.session_state["current_y_pred"] = y_pred
+                forecast_res = get_forecast(ps, actual_steps, model_type, time_info['suggested_periods'][0])
                 
-                #st.success(f"✅ {time_unit} 단위 반영 완료: 실제 {actual_steps}개의 데이터 포인트를 예측합니다.")
+                # 5. 미래 날짜 인덱스 생성 (예측 개수와 날짜 개수 일치)
+                # 데이터의 빈도(freq)를 그대로 사용하여 날짜 생성
+                future_dates = pd.date_range(
+                    start=ps.index[-1], 
+                    periods=actual_steps + 1, 
+                    freq=data_freq
+                )[1:]
+                
+                # 결과 저장
+                st.session_state["forecast_res"] = forecast_res
+                st.session_state["future_dates"] = future_dates
+                st.session_state["current_y_pred"] = y_pred
+            
+                #st.success(f"✅ 단위 변환 완료: {time_unit} 단위를 반영하여 미래 {actual_steps}포인트를 예측합니다.")
     
             if st.button("🗑️ 로그 초기화", use_container_width=True):
                 st.session_state["perf_log"] = pd.DataFrame()
@@ -472,29 +495,23 @@ if st.session_state["processed"] is not None:
         st.divider()
         st.subheader("📑 최종 수요 예측 결과 및 분석 리포트")
         res_row_col1, res_row_col2 = st.columns([1.5, 1])
-        f_res, ps = st.session_state["forecast_res"], st.session_state["processed"]
-        future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
+        f_res = st.session_state["forecast_res"]
+        ps = st.session_state["processed"]
+        
+        future_dates = st.session_state.get("future_dates")
         with res_row_col1:
             with st.container(border=True, height=600):
                 fig_all = go.Figure()
                 fig_all.add_trace(go.Scatter(x=ps.index, y=ps.values, name="과거 실제값"))
+                # [수정] 예측값과 날짜의 길이가 항상 동일하게 출력됨
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", line=dict(color="#ef553b", width=4)))
-                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False))
-                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', fillcolor='rgba(239,85,59,0.1)', line=dict(width=0), name="신뢰구간"))
                 st.plotly_chart(fig_all, use_container_width=True)
+    
         with res_row_col2:
-            with st.container(border=True, height=600):
-                summary = summarize_forecast(f_res)
-                m1, m2, m3 = st.columns(3)
-                m1.metric("평균 예측치", f"{summary['avg']:,.1f}")
-                m2.metric("최대 수요", f"{summary['max']:,.1f}")
-                m3.metric("최소 수요", f"{summary['min']:,.1f}")
-                st.divider()
-                selected_unit = st.session_state.get("sel_unit", "일")
-                agg_val = aggregate_forecast(f_res, freq={"일":"D","주":"W","월":"M","년":"Y"}.get(selected_unit, "D"))
-                st.info(f"✔️ {selected_unit} 단위 환산: {agg_val:,.2f}")
-                st.dataframe(forecast_table(f_res, future_dates), use_container_width=True, height=250)
-
+            # 테이블 출력 시에도 날짜와 예측값 매핑
+            df_table = forecast_table(f_res, future_dates)
+            st.dataframe(df_table, use_container_width=True, height=250)
+            
     st.divider()
     st.subheader("📏 성능 평가 결과 및 모델 검증")
     
