@@ -623,10 +623,11 @@ if st.session_state["processed"] is not None:
             else:
                 st.info("✅ 모델링에 적합한 패턴이 존재합니다.")
 
-            ps = st.session_state["processed"]
-            time_info = analyze_time_index(ps.index)
-            st.write(f"📅 **기간:** `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
-            st.write(f"🔄 **추정 주기:** `{selected_period}` (빈도: {time_info['frequency']})")
+            suggested_p = time_info['suggested_periods'][0]
+        
+            st.divider() # 컨테이너 내부 구분선
+            st.write(f"📅 **기간:** `{time_info['start'].date()}` ~ `{time_info['end'].date()}`") 
+            st.write(f"🔄 **추정 주기:** `{suggested_p}` (빈도: {time_info['frequency']})") 
 
     st.divider()
 
