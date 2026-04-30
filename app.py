@@ -158,104 +158,95 @@ def render_dashboard():
     df = st.session_state["df"]
     processed = st.session_state["processed"]
 
+    # -----------------------------
+    # 1행: 업로드 / 전처리
+    # -----------------------------
     col1, col2 = st.columns(2)
 
-    # 업로드
     with col1:
-        st.subheader("데이터 업로드")
-        file = st.file_uploader("CSV 업로드")
+        with st.container():
+            st.subheader("📂 데이터 업로드")
+            file = st.file_uploader("CSV 업로드")
 
-        if file:
-            df = load_data(file)
-            st.session_state["df"] = df
+            if file:
+                df = load_data(file)
+                st.session_state["df"] = df
 
-        if df is not None:
-            st.dataframe(df.head())
+            if df is not None:
+                st.dataframe(df.head(), use_container_width=True)
 
-    # 전처리
     with col2:
-        st.subheader("전처리")
+        with st.container():
+            st.subheader("⚙️ 전처리")
 
-        if df is not None:
-            col = st.selectbox("컬럼 선택", df.columns)
+            if df is not None:
+                col = st.selectbox("컬럼 선택", df.columns)
 
-            if st.button("전처리 실행"):
-                st.session_state["target_col"] = col
-                processed = preprocess_series(df[col])
-                st.session_state["processed"] = processed
+                if st.button("전처리 실행"):
+                    st.session_state["target_col"] = col
+                    processed = preprocess_series(df[col])
+                    st.session_state["processed"] = processed
 
-        if processed is not None:
-            raw = df[st.session_state["target_col"]]
-            st.plotly_chart(plot_preprocessing(raw, processed))
+            if processed is not None:
+                raw = df[st.session_state["target_col"]]
+                st.plotly_chart(plot_preprocessing(raw, processed), use_container_width=True)
+                st.button("🔍 확대", on_click=lambda: go_detail("preprocess"))
 
-            st.button("🔍 확대", on_click=lambda: go_detail("preprocess"))
-
-    # 정상성
+    # -----------------------------
+    # 2행: 정상성 / 분해
+    # -----------------------------
     if processed is not None:
-        st.subheader("정상성 검정")
+        col3, col4 = st.columns(2)
 
-        adf = run_stationarity_test(processed)
-        lb = run_ljungbox_test(processed)
+        with col3:
+            with st.container():
+                st.subheader("📈 정상성 검정")
 
-        st.write(f"ADF p-value: {adf['p_value']:.4f}")
-        st.write(f"Ljung-Box p-value: {lb['p_value']:.4f}")
+                adf = run_stationarity_test(processed)
+                lb = run_ljungbox_test(processed)
 
-        st.button("🔍 확대", on_click=lambda: go_detail("stationarity"))
+                st.metric("ADF p-value", f"{adf['p_value']:.4f}")
+                st.metric("Ljung-Box p-value", f"{lb['p_value']:.4f}")
 
-    # 분해
+                st.button("🔍 확대", on_click=lambda: go_detail("stationarity"))
+
+        with col4:
+            with st.container():
+                st.subheader("📊 시계열 분해")
+
+                result = decompose_series(processed, 7)
+                st.plotly_chart(plot_decomposition(result), use_container_width=True)
+
+                st.button("🔍 확대", on_click=lambda: go_detail("decompose"))
+
+    # -----------------------------
+    # 3행: 예측 (단독 row → 2칸 사용)
+    # -----------------------------
     if processed is not None:
-        st.subheader("시계열 분해")
+        col5, col6 = st.columns(2)
 
-        result = decompose_series(processed, 7)
-        st.plotly_chart(plot_decomposition(result))
+        with col5:
+            with st.container():
+                st.subheader("🔮 예측")
 
-        st.button("🔍 확대", on_click=lambda: go_detail("decompose"))
+                if st.button("예측 실행"):
+                    st.session_state["forecast"] = get_forecast(processed, 14)
 
-    # 예측
-    if processed is not None:
-        st.subheader("예측")
+                if st.session_state["forecast"] is not None:
+                    st.plotly_chart(
+                        plot_forecast_result(processed, st.session_state["forecast"]),
+                        use_container_width=True
+                    )
 
-        if st.button("예측 실행"):
-            st.session_state["forecast"] = get_forecast(processed, 14)
+                    st.button("🔍 확대", on_click=lambda: go_detail("forecast"))
 
-        if st.session_state["forecast"] is not None:
-            st.plotly_chart(plot_forecast_result(processed, st.session_state["forecast"]))
+        # 오른쪽은 비워두거나 요약 넣기
+        with col6:
+            with st.container():
+                st.subheader("📌 요약")
 
-            st.button("🔍 확대", on_click=lambda: go_detail("forecast"))
-
-# -----------------------------
-# 상세 화면
-# -----------------------------
-def render_detail():
-    st.button("⬅️ 돌아가기", on_click=go_home)
-
-    selected = st.session_state["selected"]
-    df = st.session_state["df"]
-    processed = st.session_state["processed"]
-
-    if selected == "preprocess":
-        st.title("전처리 상세")
-        raw = df[st.session_state["target_col"]]
-        st.plotly_chart(plot_preprocessing(raw, processed), use_container_width=True)
-
-    elif selected == "stationarity":
-        st.title("정상성 상세")
-        st.write(run_stationarity_test(processed))
-        st.write(run_ljungbox_test(processed))
-
-    elif selected == "decompose":
-        st.title("분해 상세")
-        result = decompose_series(processed, 7)
-        st.plotly_chart(plot_decomposition(result), use_container_width=True)
-
-    elif selected == "forecast":
-        st.title("예측 상세")
-        st.plotly_chart(plot_forecast_result(processed, st.session_state["forecast"]), use_container_width=True)
-
-# -----------------------------
-# 실행
-# -----------------------------
-if st.session_state.view == "dashboard":
-    render_dashboard()
-else:
-    render_detail()
+                if st.session_state["forecast"] is not None:
+                    f = st.session_state["forecast"]["mean"]
+                    st.metric("예측 평균", f"{np.mean(f):.2f}")
+                    st.metric("최대값", f"{np.max(f):.2f}")
+                    st.metric("최소값", f"{np.min(f):.2f}")
