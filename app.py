@@ -604,61 +604,84 @@ if st.session_state["processed"] is not None:
     st.divider()
 
     # -----------------------------
-    # 7~8. 모델 선택 및 성능 평가
+    # 7. 모델 선택 및 시평 설정 (이미지 image_0bdf3c.png 스타일 재현)
     # -----------------------------
-    st.subheader("7️⃣ 모델 선택 및 성능 평가")
-    m_col1, m_col2 = st.columns([1, 2])
+    st.divider()
+    st.subheader("⚙️ 7. 모델 선택 및 설정")
     
-    with m_col1:
-        with st.container(border=True):
-            model_type = st.selectbox("예측 모델 선택", ["ARIMA", "SARIMA", "STL", "HW", "ES", "MA"])
-            horizon = st.number_input("예측 기간(Horizon)", min_value=1, value=12)
+    with st.container(border=True):
+        # 상단 요약 정보 (이미지 상단 메타데이터 영역)
+        time_info = analyze_time_index(st.session_state["processed"].index)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"📅 **Datetime 범위:** `{time_info['start'].strftime('%Y.%m.%d')} ~ {time_info['end'].strftime('%Y.%m.%d')}`")
+        with c2:
+            st.markdown(f"🔄 **평균 데이터 주기:** `1일 (총 {len(st.session_state['processed'])}개 샘플)`")
+        
+        st.divider()
+    
+        # 모델 설정 입력 영역 (2x2 그리드)
+        col_input1, col_input2 = st.columns(2)
+        with col_input1:
+            model_type = st.selectbox("예측 모델", ["SARIMA", "ARIMA", "STL", "HW", "ES", "MA"], key="model_sel_box")
+            horizon = st.number_input("예측 길이(시평)", min_value=1, value=7, key="horizon_input")
+        with col_input2:
+            method = st.selectbox("평가 방식", ["Rolling", "Block"], key="method_sel_box")
+            time_unit = st.selectbox("시간 단위", ["일", "시간", "주", "월"], key="unit_sel_box")
+    
+        # 실행 버튼부
+        if st.button("🚀 예측 실행", use_container_width=True, type="primary"):
+            ps = st.session_state["processed"]
+            # 성능 평가용 Split 및 검증 실행
+            split_idx = int(len(ps) * 0.8)
+            train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
             
-            if st.button("📈 모델 학습 및 평가", use_container_width=True):
-                # 성능 평가용 Split (8:2)
-                split_idx = int(len(ps) * 0.8)
-                train_part, test_part = ps.iloc[:split_idx], ps.iloc[split_idx:]
-                
-                # 검증용 예측
-                y_pred = evaluate_forecast(train_part, test_part, model_type, horizon)
-                metrics = evaluate_metrics(test_part[:len(y_pred)], y_pred, model_type, "Block Cross-Val")
-                
-                # 누적 로그 업데이트
-                st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
-                
-                # 실전 예측 수행
-                st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, selected_period)
-
-    with m_col2:
-        st.write("📋 모델 성능 기록")
-        if not st.session_state["perf_log"].empty:
-            st.dataframe(st.session_state["perf_log"], use_container_width=True)
-            if st.button("🗑️ 기록 초기화"):
-                st.session_state["perf_log"] = pd.DataFrame()
-                st.rerun()
-
+            y_pred = evaluate_forecast(train_p, test_p, model_type, horizon)
+            metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
+            
+            # 세션 상태 업데이트 
+            st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
+            st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, time_info['suggested_periods'][0])
+            st.toast(f"{model_type} 모델 예측 완료!")
+    
+        if st.button("🗑️ 로그 초기화", use_container_width=True):
+            st.session_state["perf_log"] = pd.DataFrame()
+            st.rerun()
+    
     # -----------------------------
-    # 9. 최종 예측 결과 리포트
+    # 8~9. 평가 결과 및 예측 리포트 (이미지 image_0be320.png 스타일 재현)
     # -----------------------------
     if st.session_state["forecast_res"] is not None:
         st.divider()
-        st.subheader("9️⃣ 최종 수요 예측 결과 리포트")
-        
-        f_res = st.session_state["forecast_res"]
-        stats = summarize_forecast(f_res)
-        
-        # 예측 요약 지표
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("평균 예측치", f"{stats['avg']:,.2f}")
-        m2.metric("최대 예측치", f"{stats['max']:,.2f}")
-        m3.metric("최소 예측치", f"{stats['min']:,.2f}")
-        m4.metric("추세 기울기", f"{f_res['trend_slope']:.4f}")
-        
-        # 메인 예측 차트
-        st.plotly_chart(plot_forecast_result(ps, f_res, ps.index), use_container_width=True)
-        
-        # 예측치 상세 테이블
-        with st.expander("📅 기간 단위 당 상세 예측치 확인"):
-            future_idx = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
-            table = forecast_table(f_res, future_idx)
-            st.dataframe(table, use_container_width=True)
+        res_col1, res_col2 = st.columns([1, 1])
+    
+        # 왼쪽: 평가 결과 및 로그
+        with res_col1:
+            st.markdown("### 📏 평가 결과 및 로그")
+            with st.container(border=True, height=550):
+                if not st.session_state["perf_log"].empty:
+                    st.dataframe(st.session_state["perf_log"], use_container_width=True)
+                
+                st.info("💡 **지표 참고 사항:** MAE(낮음 우수), MdRAE(<1 우수), TS(±4 정상)")
+                
+                # 모델별 비교 차트 (이미지 하단 멀티 라인 차트)
+                st.markdown("**모델별 검증 예측 비교**")
+                # (이 부분은 evaluate_forecast 데이터를 preds_dict로 묶어 plot_forecast_vs_actual 함수 호출)
+                # 예시: st.plotly_chart(plot_forecast_vs_actual(test_p, {"SARIMA": y_pred}), use_container_width=True)
+    
+        # 오른쪽: 수요 예측 결과
+        with res_col2:
+            st.markdown("### 📊 수요 예측 결과")
+            with st.container(border=True, height=550):
+                f_res = st.session_state["forecast_res"]
+                fig = plot_forecast_result(st.session_state["processed"], f_res, st.session_state["processed"].index)
+                
+                # 차트 범례 및 디자인 조정 [cite: 46]
+                fig.update_layout(
+                    legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.02),
+                    margin=dict(l=10, r=80, t=10, b=10)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # 하단 결과 요약 텍스트 박스
+                st.success(f"✨ **결과 요약:** 향후 {horizon}{time_unit}간 평균 예상 수요는 **{f_res['mean'].mean():.1f}**입니다.")
