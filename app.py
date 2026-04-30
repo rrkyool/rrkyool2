@@ -18,9 +18,6 @@ from pmdarima import auto_arima
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-
-
-
 # -----------------------------
 # 1. 분석 핵심 함수 정의
 # -----------------------------
@@ -519,23 +516,159 @@ def aggregate_forecast(forecast_result, freq="D"):
 # -----------------------------
 # 2. 메인 앱 설정
 # -----------------------------
+
+# -----------------------------
+# 상태 초기화
+# -----------------------------
+if "df" not in st.session_state:
+    st.session_state["df"] = None
+
+if "processed" not in st.session_state:
+    st.session_state["processed"] = None
+
+if "forecast" not in st.session_state:
+    st.session_state["forecast"] = None
+
+if "view" not in st.session_state:
+    st.session_state["view"] = "dashboard"
+
+if "selected" not in st.session_state:
+    st.session_state["selected"] = None
+
+# -----------------------------
+# 뷰 전환 함수
+# -----------------------------
+def go_detail(name):
+    st.session_state.view = "detail"
+    st.session_state.selected = name
+
+def go_home():
+    st.session_state.view = "dashboard"
+    st.session_state.selected = None
+
+# -----------------------------
+# 기본 설정
+# -----------------------------
 st.set_page_config(layout="wide")
 
-st.title("📊 📈 시계열 분석 Project1 수요 예측")
-st.subheader("C321032 박하율")
+# -----------------------------
+# 상태 초기화
+# -----------------------------
+if "df" not in st.session_state:
+    st.session_state["df"] = None
 
-# 사이드바 (단계 선택)
-step = st.sidebar.radio("단계 선택", [
-    "1. 데이터 업로드",
-    "2. 전처리",
-    "3. 전처리 시각화",
-    "4. 정상성 검정",
-    "5. 시계열 분해",
-    "6. 주기 분석",
-    "7. 모델링",
-    "8. 성능 평가",
-    "9. 예측 결과"
-])
+if "processed" not in st.session_state:
+    st.session_state["processed"] = None
+
+if "forecast" not in st.session_state:
+    st.session_state["forecast"] = None
+
+if "view" not in st.session_state:
+    st.session_state["view"] = "dashboard"
+
+if "selected" not in st.session_state:
+    st.session_state["selected"] = None
+
+# -----------------------------
+# 대시보드
+# -----------------------------
+def render_dashboard():
+    st.set_page_config(layout="wide")
+
+    st.title("📊 📈 시계열 분석 Project1 수요 예측")
+    st.subheader("C321032 박하율")
+
+
+    df = st.session_state["df"]
+    processed = st.session_state["processed"]
+
+    col1, col2 = st.columns(2)
+
+    # 1. 업로드
+    with col1:
+        st.subheader("데이터 업로드")
+        file = st.file_uploader("CSV 업로드")
+
+        if file:
+            df = load_data(file)
+            st.session_state["df"] = df
+
+        if df is not None:
+            st.dataframe(df.head())
+
+    # 2. 전처리
+    with col2:
+        st.subheader("전처리")
+
+        if df is not None:
+            col = st.selectbox("컬럼 선택", df.columns)
+
+            if st.button("전처리 실행"):
+                processed = preprocess_series(df[col])
+                st.session_state["processed"] = processed
+
+        if processed is not None:
+            st.plotly_chart(plot_preprocessing(df[col], processed))
+
+            st.button("🔍 확대", on_click=lambda: go_detail("preprocess"))
+
+    # 3. 정상성
+    if processed is not None:
+        st.subheader("정상성 검정")
+
+        adf = run_stationarity_test(processed)
+        lb = run_ljungbox_test(processed)
+
+        st.write(f"ADF: {adf['p_value']:.4f}")
+        st.write(f"Ljung-Box: {lb['p_value']:.4f}")
+
+        st.button("🔍 확대", on_click=lambda: go_detail("stationarity"))
+
+    # 4. 예측
+    if processed is not None:
+        st.subheader("예측")
+
+        if st.button("예측 실행"):
+            result = get_forecast(processed, 10)
+            st.session_state["forecast"] = result
+
+        if st.session_state["forecast"] is not None:
+            st.plotly_chart(plot_forecast_result(processed, st.session_state["forecast"]))
+
+            st.button("🔍 확대", on_click=lambda: go_detail("forecast"))
+
+# -----------------------------
+# 상세 보기
+# -----------------------------
+def render_detail():
+    st.button("⬅️ 돌아가기", on_click=go_home)
+
+    selected = st.session_state.selected
+    df = st.session_state["df"]
+    processed = st.session_state["processed"]
+
+    if selected == "preprocess":
+        st.title("전처리 상세")
+        st.plotly_chart(plot_preprocessing(df.iloc[:,0], processed), use_container_width=True)
+
+    elif selected == "stationarity":
+        st.title("정상성 상세")
+        adf = run_stationarity_test(processed)
+        st.write(adf)
+
+    elif selected == "forecast":
+        st.title("예측 상세")
+        st.plotly_chart(plot_forecast_result(processed, st.session_state["forecast"]), use_container_width=True)
+
+# -----------------------------
+# 실행
+# -----------------------------
+if st.session_state.view == "dashboard":
+    render_dashboard()
+else:
+    render_detail()
+
+
 
 #화면 컨테이너
 def big_section(title):
