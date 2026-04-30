@@ -6,12 +6,14 @@ import plotly.graph_objects as go
 from statsmodels.tsa.seasonal import seasonal_decompose
 from plotly.subplots import make_subplots
 
+from scipy.signal import savgol_filter
+
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from pmdarima import auto_arima
 from statsmodels.tsa.stattools import adfuller, acf
-from statsmodels.stats.diagnostics import acorr_ljungbox
+from statsmodels.stats.diagnostic import acorr_ljungbox
 
 
 
@@ -38,20 +40,88 @@ def load_data(file):
     raise ValueError(f"지원되지 않는 인코딩입니다. 마지막 오류: {last_error}")
 
 #2. 데이터 전처리
-#결측치 대체
 #이상치 탐지 및 대체
-#디노이
 def hampel_filter(series, window=5, n=3):
     series = series.astype(float)
     new = series.copy()
-    for i in range(window, len(series)-window):
-        win = series.iloc[i-window:i+window]
+
+    k = 1.4826  # scale factor
+
+    for i in range(len(series)):
+        start = max(i - window, 0)
+        end = min(i + window + 1, len(series))
+
+        win = series.iloc[start:end]
         med = np.median(win)
-        mad = np.median(np.abs(win-med))
-        if mad == 0: continue
-        if abs(series.iloc[i]-med) > n*mad:
+        mad = np.median(np.abs(win - med))
+
+        if mad == 0:
+            continue
+
+        threshold = n * k * mad
+
+        if abs(series.iloc[i] - med) > threshold:
             new.iloc[i] = med
+
     return new
+
+#디노이징
+def denoise_series(series, window=11, poly=2):
+    return pd.Series(
+        savgol_filter(series, window_length=window, polyorder=poly),
+        index=series.index
+    )
+
+#최종 전처리 pipeline
+def preprocess_series(series):
+    s = series.astype(float)
+
+    # 1. 결측치
+    s = s.interpolate(limit_direction='both')
+
+    # 2. 이상치
+    s = hampel_filter(s, window=5, n=3)
+
+    # 3. 디노이징 (택1)
+    s = denoise_series(s)  # Savitzky-Golay 추천
+
+    return s
+
+#3. 전처리 시각화
+def plot_preprocessing(raw, processed):
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(y=raw, name="원본", opacity=0.5))
+    fig.add_trace(go.Scatter(y=processed, name="전처리", line=dict(color="royalblue")))
+
+    return fig
+
+#4. 정상성 검정
+def run_stationarity_test(series):
+    series = series.dropna()
+
+    if len(series) < 10:
+        raise ValueError("데이터가 너무 짧아서 ADF 검정을 수행할 수 없습니다.")
+
+    stat, p_value, *_ = adfuller(series)
+
+    return {
+        "p_value": p_value,
+        "is_stationary": p_value < 0.05
+    }
+
+def run_ljungbox_test(series, lags=12):
+    series = series.dropna()
+
+    result = acorr_ljungbox(series, lags=[lags], return_df=True)
+    p_value = result['lb_pvalue'].iloc[0]
+
+    return {
+        "p_value": p_value,
+        "has_autocorrelation": p_value < 0.05
+    }
+
+
 #5. 시계열 분해 및 분석
 def decompose_series(series, period):
     series = series.dropna()
@@ -87,27 +157,7 @@ def summarize_decomposition(result):
         "seasonal_strength": round(seasonal_strength, 2)
     }
 
-    
-def run_stationarity_test(series):
-    """ADF 정상성 검정"""
-    res = adfuller(series.dropna())
-    return {"p_value": res[1], "is_stationary": res[1] < 0.05}
-
-def whitenoise_test(ts, lags=1):
-    p_value = acorr_ljungbox(ts, lags = lags)['lb_pvalue'].iloc[0]
-
-    if p_value < 0.05:
-        return f'{p_value = :.4f}: 백색잡음 아님, 모형 개선 가능'
-    else:
-         return f'{p_value = :.4f}: 백색잡음, 추가 모형 불필요'
-
-def acorr_test(ts, lags=12):
-    p_value = acorr_ljungbox(ts, lags = lags)['lb_pvalue'].iloc[0]
-
-    if p_value < 0.05:
-        return f'{p_value = :.4f}: 자기상관 존재 → 모형 개선 가능'
-    else:
-         return f'{p_value = :.4f}: 자기상관 없음 → 추가 모형 불필요'
+ 
 
 def decompose_series(series, period=12):
     """시계열 분해 (Trend, Seasonal 추출)"""
