@@ -3,36 +3,44 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
+from statsmodels.tsa.seasonal import seasonal_decompose
+from plotly.subplots import make_subplots
+
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from pmdarima import auto_arima
-from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import adfuller, acf
+from statsmodels.stats.diagnostics import acorr_ljungbox
+
+
 
 # -----------------------------
 # 1. 분석 핵심 함수 정의
 # -----------------------------
+
+#1. 데이터 로드
 def load_data(file):
-    for enc in ["utf-8", "cp949", "euc-kr"]:
+    encodings = ["utf-8", "cp949", "euc-kr"]
+    last_error = None
+
+    for enc in encodings:
         try:
             file.seek(0)
-            return pd.read_csv(file, encoding=enc)
-        except: continue
-    return None
-    
-def find_optimal_period(series):
-    """ACF를 분석하여 데이터의 잠재적 계절 주기를 자동 탐지"""
-    series = series.dropna()
-    if len(series) < 10: return 1
-    max_lag = min(len(series) // 3, 40)
-    acf_values = acf(series, nlags=max_lag)
-    if len(acf_values) > 3:
-        optimal_lag = np.argmax(acf_values[3:]) + 3
-        if acf_values[optimal_lag] > 0.2:
-            return int(optimal_lag)
-    return 1
+            df = pd.read_csv(file, encoding=enc)
+            return df
+        except UnicodeDecodeError as e:
+            last_error = e
+        except Exception as e:
+            # 인코딩 문제가 아닌 경우 바로 실패 처리
+            raise ValueError(f"파일을 읽는 중 오류 발생: {e}")
 
+    raise ValueError(f"지원되지 않는 인코딩입니다. 마지막 오류: {last_error}")
+
+#2. 데이터 전처리
+#결측치 대체
+#이상치 탐지 및 대체
+#디노이
 def hampel_filter(series, window=5, n=3):
     series = series.astype(float)
     new = series.copy()
@@ -44,11 +52,62 @@ def hampel_filter(series, window=5, n=3):
         if abs(series.iloc[i]-med) > n*mad:
             new.iloc[i] = med
     return new
+#5. 시계열 분해 및 분석
+def decompose_series(series, period):
+    series = series.dropna()
+
+    if len(series) < period * 2:
+        raise ValueError("데이터 길이가 주기 대비 너무 짧습니다.")
+
+    result = seasonal_decompose(series, model='additive', period=period)
+
+    return result
+
+def plot_decomposition(result):
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        subplot_titles=("원본", "추세", "계절성", "잔차")
+    )
+
+    fig.add_trace(go.Scatter(y=result.observed, name="Observed"), row=1, col=1)
+    fig.add_trace(go.Scatter(y=result.trend, name="Trend"), row=2, col=1)
+    fig.add_trace(go.Scatter(y=result.seasonal, name="Seasonal"), row=3, col=1)
+    fig.add_trace(go.Scatter(y=result.resid, name="Residual"), row=4, col=1)
+
+    fig.update_layout(height=800, showlegend=False)
+    return fig
+
+def summarize_decomposition(result):
+    trend_strength = result.trend.std() / result.observed.std()
+    seasonal_strength = result.seasonal.std() / result.observed.std()
+
+    return {
+        "trend_strength": round(trend_strength, 2),
+        "seasonal_strength": round(seasonal_strength, 2)
+    }
+
     
 def run_stationarity_test(series):
     """ADF 정상성 검정"""
     res = adfuller(series.dropna())
     return {"p_value": res[1], "is_stationary": res[1] < 0.05}
+
+def whitenoise_test(ts, lags=1):
+    p_value = acorr_ljungbox(ts, lags = lags)['lb_pvalue'].iloc[0]
+
+    if p_value < 0.05:
+        return f'{p_value = :.4f}: 백색잡음 아님, 모형 개선 가능'
+    else:
+         return f'{p_value = :.4f}: 백색잡음, 추가 모형 불필요'
+
+def acorr_test(ts, lags=12):
+    p_value = acorr_ljungbox(ts, lags = lags)['lb_pvalue'].iloc[0]
+
+    if p_value < 0.05:
+        return f'{p_value = :.4f}: 자기상관 존재 → 모형 개선 가능'
+    else:
+         return f'{p_value = :.4f}: 자기상관 없음 → 추가 모형 불필요'
 
 def decompose_series(series, period=12):
     """시계열 분해 (Trend, Seasonal 추출)"""
