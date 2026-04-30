@@ -565,27 +565,38 @@ with st.sidebar:
             st.divider()
             
             # 예측 실행 버튼
+            # [사이드바 - 예측 실행 버튼 클릭 시 로직 수정]
             if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
+                
+                # 1. 사용자가 설정한 시평(Horizon) 값 가져오기 [cite: 1169]
+                forecast_horizon = horizon 
+            
+                # 2. 평가 방식(Method)에 따른 함수 분기 처리
+                # Rolling은 창을 밀어가며 예측하므로 데이터 전체 구간에 대해 연속적인 오차를 측정합니다.
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
-                
-                # 기존 함수 활용 성능 평가 및 예측
-                y_pred = evaluate_forecast(train_p, test_p, model_type, horizon)
-                metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
-                
-                # 기록 업데이트
-                st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
-                
-                # 주기 분석 후 최종 예측
+            
+                with st.spinner(f"{model_type} 모델로 {method} 검증 중..."):
+                    if method == "Rolling":
+                        # Rolling 함수 호출 (기존에 정의하신 함수 활용) 
+                        y_pred = rolling_forecast_fast(train_p, test_p, model_type)
+                    else:
+                        # Block 방식 호출 
+                        y_pred = block_forecast(train_p, test_p, model_type, forecast_horizon)
+            
+                    # 3. 모델별/방식별 차별화된 성능 지표 계산 [cite: 1160, 2470]
+                    metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
+                    
+                    # 세션 상태 업데이트 (이제 모델을 바꾸면 지표가 변합니다)
+                    st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
+                    st.session_state["current_y_pred"] = y_pred
+            
+                # 4. 최종 미래 예측 (전체 데이터 기반) [cite: 1153, 2462]
                 time_info = analyze_time_index(ps.index)
-                st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, time_info['suggested_periods'][0])
-                st.session_state["current_y_pred"] = y_pred # 검증 시각화용
-                st.toast(f"{model_type} 모델 예측 완료!")
-
-            if st.button("🗑️ 로그 초기화", use_container_width=True):
-                st.session_state["perf_log"] = pd.DataFrame()
-                st.rerun()
+                st.session_state["forecast_res"] = get_forecast(ps, forecast_horizon, model_type, time_info['suggested_periods'][0])
+                
+                st.toast(f"{model_type} 모델 {method} 평가 완료!")
 
 # -----------------------------
 # 2. 메인 화면 (분석 리포트)
