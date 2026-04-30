@@ -598,6 +598,10 @@ with st.sidebar:
                 
                 st.toast(f"{model_type} 모델 {method} 평가 완료!")
 
+            if st.button("🗑️ 로그 초기화", use_container_width=True):
+                st.session_state["perf_log"] = pd.DataFrame()
+                st.rerun()
+
 # -----------------------------
 # 2. 메인 화면 (분석 리포트)
 # -----------------------------
