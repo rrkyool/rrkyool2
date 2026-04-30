@@ -565,7 +565,7 @@ with st.sidebar:
             st.divider()
             
             # 예측 실행 버튼
-            if st.button("▶️ 수요 예측 실행", use_container_width=True, type="primary"):
+            if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
