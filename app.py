@@ -540,7 +540,6 @@ with col1:
             df = df.set_index(df.columns[0])
             st.session_state["df"] = df
             st.success("데이터 로드 완료!")
-            st.dataframe(df.head(), use_container_width=True)
 
 with col2:
     if st.session_state["df"] is not None:
@@ -552,6 +551,7 @@ with col2:
             c1, c2 = st.columns(2)
             with c1:
                 st.info("결측치: 선형 보간\n\n이상치: Hampel Filter\n\n노이즈: Savitzky-Golay")
+                st.dataframe(df.head(), use_container_width=True)
             with c2:
                 if st.button("🚀 분석 시작 (전처리 실행)", use_container_width=True):
                     st.session_state["processed"] = preprocess_series(target_series)
