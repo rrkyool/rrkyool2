@@ -702,31 +702,30 @@ if st.session_state["processed"] is not None:
 
         st.divider()
 
-        # ---------------------------------------------------------------------------------------
-        # 5️⃣ 성능 평가 결과 및 모델 검증 (가독성 강화 버전)
-        # ---------------------------------------------------------------------------------------
-        st.subheader("📏 5️⃣ 성능 평가 결과 및 모델 검증")
-        
-        # 선명도를 위해 로그 표를 상단에 크게 배치
-        if not st.session_state["perf_log"].empty:
-            st.write("**📊 누적 성능 평가 로그 (History Log)**")
-            # 컨테이너 외부로 독립시켜 텍스트와 선을 선명하게 유지 
-            st.table(st.session_state["perf_log"]) 
-            st.info("💡 MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상 범위)")
-        
-        st.divider()
-        
-        # 모델 검증 차트를 하단에 단독 배치하여 크게 시각화
-        st.write("**🔍 모델 검증 데이터 비교 (Actual vs Prediction)**")
-        y_val_pred = st.session_state.get("current_y_pred") 
-        if y_val_pred is not None:
-            split_idx = int(len(ps) * 0.8)
-            test_p = ps.iloc[split_idx:]
-            # NameError 방지를 위해 st.session_state.get 활용 [cite: 562]
-            model_name = st.session_state.get("sel_model", "Selected Model")
-            fig_val = plot_forecast_vs_actual(test_p, {model_name: y_val_pred}) [cite: 512]
-            fig_val.update_layout(height=500, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_val, use_container_width=True, key="validation_chart")
-        else:
-            st.warning("⚠️ '수요 예측 실행' 버튼 클릭 시 모델 검증 차트가 활성화됩니다.")
-                   
+    # ---------------------------------------------------------------------------------------
+    # 5️⃣ 성능 평가 결과 및 모델 검증 (가독성 강화 버전)
+    # ---------------------------------------------------------------------------------------
+    st.subheader("📏 5️⃣ 성능 평가 결과 및 모델 검증")
+    
+    # 선명도를 위해 로그 표를 상단에 크게 배치
+    if not st.session_state["perf_log"].empty:
+        st.write("**📊 누적 성능 평가 로그 (History Log)**")
+        # 컨테이너 외부로 독립시켜 텍스트와 선을 선명하게 유지 
+        st.table(st.session_state["perf_log"]) 
+        st.info("💡 MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상 범위)")
+    
+    st.divider()
+    
+    # 모델 검증 차트를 하단에 단독 배치하여 크게 시각화
+    st.write("**🔍 모델 검증 데이터 비교 (Actual vs Prediction)**")
+    y_val_pred = st.session_state.get("current_y_pred") 
+    if y_val_pred is not None:
+        split_idx = int(len(ps) * 0.8)
+        test_p = ps.iloc[split_idx:]
+        # NameError 방지를 위해 st.session_state.get 활용 [cite: 562]
+        model_name = st.session_state.get("sel_model", "Selected Model")
+        fig_val = plot_forecast_vs_actual(test_p, {model_name: y_val_pred}) [cite: 512]
+        fig_val.update_layout(height=500, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_val, use_container_width=True, key="validation_chart")
+    else:
+        st.warning("⚠️ '수요 예측 실행' 버튼 클릭 시 모델 검증 차트가 활성화됩니다.")
