@@ -246,10 +246,7 @@ with st.sidebar:
                 ps = st.session_state["processed"]
                 data_freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') and ps.index.inferred_freq else "D"
                 
-                # [수정] 실제 데이터 Step 수 환산 (Daily 데이터 기준 월=30, 주=7)
-                multipliers = {"일": 1, "주": 7, "월": 30, "년": 365}
-                if 'M' in data_freq or 'm' in data_freq: multipliers = {"일": 1, "주": 1, "월": 1, "년": 12}
-                actual_steps = int(horizon_val * multipliers.get(time_unit, 1))
+                actual_steps = int(horizon_val)
 
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
@@ -262,7 +259,20 @@ with st.sidebar:
                 # [중요] 미래 예측 수행 및 날짜 생성
                 time_info = analyze_time_index(ps.index)
                 st.session_state["forecast_res"] = get_forecast(ps, actual_steps, model_type, time_info['suggested_periods'][0])
-                st.session_state["future_dates"] = pd.date_range(start=ps.index[-1], periods=actual_steps + 1, freq=data_freq)[1:]
+                freq_map = {
+                    "일": "D",
+                    "주": "W",
+                    "월": "M",
+                    "년": "Y"
+                }
+                
+                selected_freq = freq_map.get(time_unit, data_freq)
+                
+                st.session_state["future_dates"] = pd.date_range(
+                    start=ps.index[-1],
+                    periods=actual_steps + 1,
+                    freq=selected_freq
+                )[1:]
                 st.session_state["current_y_pred"] = y_pred
 
             if st.button("🗑️ 로그 초기화", use_container_width=True):
@@ -289,7 +299,25 @@ if st.session_state["processed"] is not None:
             c1.metric("ADF p-value", f"{adf['p_value']:.4f}", "정상" if adf['is_stationary'] else "비정상")
             c2.metric("Ljung-Box p-value", f"{lb['p_value']:.4f}", "패턴 없음" if lb['p_value'] > 0.05 else "자기상관")
             time_info = analyze_time_index(ps.index)
-            st.divider(); st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`"); st.write(f"🔄 추정 주기: `{time_info['suggested_periods'][0]}`")
+            st.divider(); st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
+            freq = time_info['frequency']
+
+            # freq를 사람이 읽을 수 있게 변환
+            if freq <= pd.Timedelta("1H"):
+                freq_str = "시간 단위"
+            elif freq <= pd.Timedelta("1D"):
+                freq_str = "일 단위"
+            elif freq <= pd.Timedelta("7D"):
+                freq_str = "주 단위"
+            elif freq <= pd.Timedelta("31D"):
+                freq_str = "월 단위"
+            else:
+                freq_str = "연 단위"
+
+            st.write(f"""
+            🔄 추정 주기: `{time_info['suggested_periods'][0]}`
+            📏 데이터 빈도: `{freq_str}`
+            """)
 
     st.divider()
     with st.container(border=True):
