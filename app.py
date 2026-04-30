@@ -503,14 +503,23 @@ if st.session_state["processed"] is not None:
             with st.container(border=True, height=600):
                 fig_all = go.Figure()
                 fig_all.add_trace(go.Scatter(x=ps.index, y=ps.values, name="과거 실제값"))
-                # [수정] 예측값과 날짜의 길이가 항상 동일하게 출력됨
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", line=dict(color="#ef553b", width=4)))
+                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False))
+                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', fillcolor='rgba(239,85,59,0.1)', line=dict(width=0), name="신뢰구간"))
                 st.plotly_chart(fig_all, use_container_width=True)
-    
-        with res_row_col2:
-            # 테이블 출력 시에도 날짜와 예측값 매핑
-            df_table = forecast_table(f_res, future_dates)
-            st.dataframe(df_table, use_container_width=True, height=250)
+         with res_row_col2:
+            with st.container(border=True, height=600):
+                summary = summarize_forecast(f_res)
+                m1, m2, m3 = st.columns(3)
+                m1.metric("평균 예측치", f"{summary['avg']:,.1f}")
+                m2.metric("최대 수요", f"{summary['max']:,.1f}")
+                m3.metric("최소 수요", f"{summary['min']:,.1f}")
+                st.divider()
+                selected_unit = st.session_state.get("sel_unit", "일")
+                agg_val = aggregate_forecast(f_res, freq={"일":"D","주":"W","월":"M","년":"Y"}.get(selected_unit, "D"))
+                st.info(f"✔️ {selected_unit} 단위 환산: {agg_val:,.2f}")
+                st.dataframe(forecast_table(f_res, future_dates), use_container_width=True, height=250)
+
             
     st.divider()
     st.subheader("📏 성능 평가 결과 및 모델 검증")
