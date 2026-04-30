@@ -661,33 +661,29 @@ if st.session_state["processed"] is not None:
         f_res = st.session_state["forecast_res"]
         ps = st.session_state["processed"]
         
-        # 미래 날짜 인덱스 생성
+        # 미래 날짜 인덱스 생성 (오류 방지를 위해 컨테이너 내부에서 정의) 
         future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
-    
+
         with res_row_col1:
             with st.container(border=True, height=600):
                 st.write("**📈 수요 예측 시각화**")
                 fig_all = go.Figure()
-                # 과거 실제 데이터 (파란색)
                 fig_all.add_trace(go.Scatter(x=ps.index, y=ps.values, name="과거 실제값", line=dict(color="#1f77b4")))
-                # 미래 예측 데이터 (빨간색, 굵은 선 및 마커 적용) [cite: 32, 97]
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", 
                                              line=dict(color="#ef553b", width=4), mode='lines+markers'))
-                # 신뢰구간 시각화 (이미지 스타일의 밴드 추가) [cite: 33, 98]
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False))
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', 
                                              fillcolor='rgba(239, 85, 59, 0.1)', line=dict(width=0), name="신뢰구간(95%)"))
-    
+
                 fig_all.update_layout(height=450, margin=dict(l=10, r=10, t=30, b=10),
                                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig_all, use_container_width=True)
-    
+                # 중복 호출 제거하여 React Error #185 해결 
+                st.plotly_chart(fig_all, use_container_width=True, key="main_forecast_chart")
+
         with res_row_col2:
             with st.container(border=True, height=600):
                 st.write("**📑 예측 결과 분석 리포트**")
-                
-                # 요약 지표 산출 (사용자 정의 함수 활용) [cite: 85, 105]
-                summary = summarize_forecast(f_res)
+                summary = summarize_forecast(f_res) [cite: 514]
                 m1, m2, m3 = st.columns(3)
                 m1.metric("평균 예측치", f"{summary['avg']:,.1f}")
                 m2.metric("최대 수요", f"{summary['max']:,.1f}")
@@ -695,47 +691,42 @@ if st.session_state["processed"] is not None:
                 
                 st.divider()
                 
-                # 기간 단위 환산 (aggregate_forecast 활용) [cite: 86, 106]
-                # 사이드바 혹은 설정 섹션에서 선택된 time_unit 값 참조
                 freq_map = {"일": "D", "주": "W", "월": "M", "년": "Y"}
-                selected_unit = st.session_state.get("unit_sel_box", "일")
-                agg_val = aggregate_forecast(f_res, freq=freq_map.get(selected_unit, "D"))
+                selected_unit = st.session_state.get("sel_unit", "일")
+                agg_val = aggregate_forecast(f_res, freq=freq_map.get(selected_unit, "D")) [cite: 515]
                 st.info(f"✨ 해당 기간 **{selected_unit} 단위** 환산 예측치: **{agg_val:,.2f}**")
                 
-                # 상세 예측 테이블 (forecast_table 활용) [cite: 85, 105]
                 st.write("**📅 일자별 상세 예측 데이터**")
-                f_table = forecast_table(f_res, future_dates)
+                f_table = forecast_table(f_res, future_dates) [cite: 514]
                 st.dataframe(f_table, use_container_width=True, height=250)
-    
+
         st.divider()
-    
+
         # ---------------------------------------------------------------------------------------
-        # 5️⃣ 성능 평가 결과 및 모델 검증 (행 전체 사용)
+        # 5️⃣ 성능 평가 결과 및 모델 검증 (가독성 강화 버전)
         # ---------------------------------------------------------------------------------------
         st.subheader("📏 5️⃣ 성능 평가 결과 및 모델 검증")
-        # [병렬 배치] 왼쪽: 성능 로그(1:1 비율) | 오른쪽: 검증 시각화 차트(1:1 비율)
-        eval_row_col1, eval_row_col2 = st.columns([1, 1])
         
-        with eval_row_col1:
-            with st.container(border=True, height=520):
-                st.write("**📊 성능 평가 로그 (History Log)**")
-                if not st.session_state["perf_log"].empty:
-                    # MAE, RMSE, MAPE, TS 지표가 포함된 로그 테이블 출력 [cite: 17, 101, 279]
-                    st.dataframe(st.session_state["perf_log"], use_container_width=True, height=350)
-                st.info("💡 MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상 범위)")
-    
-        with eval_row_col2:
-            with st.container(border=True, height=520):
-                st.write("**🔍 모델 검증 데이터 비교 (Actual vs Prediction)**")
-                # 세션에 저장된 예측 모델 결과 참조 (무한 루프 방지를 위해 세션 상태에서 안전하게 호출) [cite: 114]
-                y_val_pred = st.session_state.get("current_val_pred") 
-                if y_val_pred is not None:
-                    split_idx = int(len(ps) * 0.8)
-                    test_p = ps.iloc[split_idx:]
-                    # 실제 데이터(점선)와 모델 예측치(실선) 대비 시각화 [cite: 17, 101, 280]
-                    fig_val = plot_forecast_vs_actual(test_p, {st.session_state.get("model_sel_box", "Model"): y_val_pred})
-                    fig_val.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10))
-                    st.plotly_chart(fig_val, use_container_width=True)
-                else:
-                    st.warning("⚠️ '예측 실행' 버튼 클릭 시 모델 검증 차트가 활성화됩니다.")           st.plotly_chart(fig_val, use_container_width=True)
+        # 선명도를 위해 로그 표를 상단에 크게 배치
+        if not st.session_state["perf_log"].empty:
+            st.write("**📊 누적 성능 평가 로그 (History Log)**")
+            # 컨테이너 외부로 독립시켜 텍스트와 선을 선명하게 유지 
+            st.table(st.session_state["perf_log"]) 
+            st.info("💡 MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상 범위)")
+        
+        st.divider()
+        
+        # 모델 검증 차트를 하단에 단독 배치하여 크게 시각화
+        st.write("**🔍 모델 검증 데이터 비교 (Actual vs Prediction)**")
+        y_val_pred = st.session_state.get("current_y_pred") 
+        if y_val_pred is not None:
+            split_idx = int(len(ps) * 0.8)
+            test_p = ps.iloc[split_idx:]
+            # NameError 방지를 위해 st.session_state.get 활용 [cite: 562]
+            model_name = st.session_state.get("sel_model", "Selected Model")
+            fig_val = plot_forecast_vs_actual(test_p, {model_name: y_val_pred}) [cite: 512]
+            fig_val.update_layout(height=500, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_val, use_container_width=True, key="validation_chart")
+        else:
+            st.warning("⚠️ '수요 예측 실행' 버튼 클릭 시 모델 검증 차트가 활성화됩니다.")
                    
