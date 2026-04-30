@@ -648,13 +648,21 @@ if st.session_state["processed"] is not None:
     st.divider()
 
     # [3행] 수요 예측 결과 & 성능 평가 로그
+    # -----------------------------
+    # 4️⃣ 최종 수요 예측 결과 리포트 (행 전체 사용)
+    # -----------------------------
     if st.session_state["forecast_res"] is not None:
-        col3, col4 = st.columns([1.2, 1])
+        st.divider()
+        st.subheader("🔮 4️⃣ 최종 수요 예측 결과 및 리포트")
         
-        with col3:
-            st.subheader("📑최종 수요 예측 리포트")
+        # [가로 배치] 왼쪽: 메인 차트(1.5) | 오른쪽: 분석 리포트(1)
+        res_row_col1, res_row_col2 = st.columns([1.5, 1])
+        f_res = st.session_state["forecast_res"]
+        ps = st.session_state["processed"]
+        
+        with res_row_col1:
             with st.container(border=True, height=600):
-                f_res = st.session_state["forecast_res"]
+                st.write("**📈 수요 예측 시각화**")
                 future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
                 
                 fig_all = go.Figure()
@@ -663,37 +671,73 @@ if st.session_state["processed"] is not None:
                 # 미래 예측 (빨간색, 굵게)
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", 
                                              line=dict(color="#ef553b", width=4), mode='lines+markers'))
-                # 신뢰구간
+                # 신뢰구간 밴드
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False))
                 fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', 
                                              fillcolor='rgba(239, 85, 59, 0.1)', line=dict(width=0), name="신뢰구간(95%)"))
-
-                fig_all.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10),
+    
+                fig_all.update_layout(height=450, margin=dict(l=10, r=10, t=30, b=10),
                                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig_all, use_container_width=True)
-                
-                st.markdown(f"""
-                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; border-left: 5px solid #ef553b;">
-                    ✨ <b>분석 요약:</b> 향후 {horizon}{time_unit}간 예상 평균 수요는 <b>{f_res['mean'].mean():,.1f}</b>입니다.
-                </div>
-                """, unsafe_allow_html=True)
-                
-        with col4:
-            st.subheader("📏 성능 평가 및 검증")
+    
+        with res_row_col2:
             with st.container(border=True, height=600):
-                st.write("**성능 평가 로그 (Accumulated)**")
-                st.dataframe(st.session_state["perf_log"], use_container_width=True, height=200)
-                st.info("💡 **지표 가이드:** MAE·RMSE(낮을수록 우수), MAPE(오차율 %), TS(±4 이내 정상)")
+                st.write("**📑 예측 결과 분석 리포트**")
+                
+                # 1. 요약 지표 산출 (summarize_forecast 활용)
+                summary = summarize_forecast(f_res)
+                
+                # 메트릭 카드 레이아웃
+                m1, m2, m3 = st.columns(3)
+                m1.metric("평균 예측치", f"{summary['avg']:,.1f}")
+                m2.metric("최대 수요", f"{summary['max']:,.1f}")
+                m3.metric("최소 수요", f"{summary['min']:,.1f}")
                 
                 st.divider()
-                st.write("**검증 데이터 예측 비교 (Actual vs Pred)**")
+                
+                # 2. 기간 단위 당 합계/평균 (aggregate_forecast 활용)
+                # 사용자가 설정한 time_unit의 첫 글자를 freq로 전달 (예: '일' -> 'D', '주' -> 'W')
+                freq_map = {"일": "D", "주": "W", "월": "M", "년": "Y"}
+                agg_val = aggregate_forecast(f_res, freq=freq_map.get(time_unit, "D"))
+                st.info(f"✨ 해당 기간 **{time_unit} 단위** 환산 예측치: **{agg_val:,.2f}**")
+                
+                # 3. 상세 예측 테이블 (forecast_table 활용)
+                st.write("**📅 일자별 상세 예측 데이터**")
+                f_table = forecast_table(f_res, future_dates)
+                st.dataframe(f_table, use_container_width=True, height=250)
+    
+        st.divider()
+    
+        # -----------------------------
+        # 5️⃣ 성능 평가 및 검증 (행 전체 사용)
+        # -----------------------------
+        st.subheader("📏 5️⃣ 성능 평가 결과 및 모델 검증")
+        
+        # [가로 배치] 왼쪽: 성능 로그(1) | 오른쪽: 검증 차트(1)
+        eval_row_col1, eval_row_col2 = st.columns([1, 1])
+        
+        with eval_row_col1:
+            with st.container(border=True, height=520):
+                st.write("**📊 성능 평가 로그 (History)**")
+                # 새로운 지표(MAE, RMSE, MAPE, TS)가 포함된 로그 출력
+                if not st.session_state["perf_log"].empty:
+                    st.dataframe(st.session_state["perf_log"], use_container_width=True, height=350)
+                st.info("💡 **지표 가이드:** MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상)")
+    
+        with eval_row_col2:
+            with st.container(border=True, height=520):
+                st.write("**🔍 모델 검증 (Actual vs Prediction)**")
                 split_idx = int(len(ps) * 0.8)
                 test_p = ps.iloc[split_idx:]
                 y_val_pred = st.session_state.get("current_val_pred")
                 
                 if y_val_pred is not None:
+                    # 사용자가 정의한 성능 지표 결과와 실제값 비교 시각화
                     fig_val = plot_forecast_vs_actual(test_p, {model_type: y_val_pred})
-                    fig_val.update_layout(height=250, margin=dict(l=5, r=5, t=10, b=10))
+                    fig_val.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10))
                     st.plotly_chart(fig_val, use_container_width=True)
-else:
-    st.info("👈 왼쪽 사이드바에서 CSV 파일을 업로드하여 분석을 시작하세요.")
+                else:
+                    st.warning("⚠️ '예측 실행' 버튼을 클릭하면 모델 검증 차트가 생성됩니다.")
+        
+    else:
+        st.info("👈 왼쪽 사이드바에서 CSV 파일을 업로드하여 분석을 시작하세요.")
