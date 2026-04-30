@@ -623,6 +623,7 @@ if st.session_state["processed"] is not None:
             else:
                 st.info("✅ 모델링에 적합한 패턴이 존재합니다.")
 
+            time_info = analyze_time_index(ps.index)
             suggested_p = time_info['suggested_periods'][0]
         
             st.divider() # 컨테이너 내부 구분선
