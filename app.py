@@ -332,6 +332,23 @@ def aggregate_forecast(forecast_result, freq="D"):
     if freq in ["W", "M"]: return df["y"].sum()
     return df["y"].mean()
 
+def convert_horizon(value, unit, freq_str):
+    """
+    사용자가 입력한 숫자와 단위를 데이터의 실제 Step 수로 변환
+    freq_str: 데이터의 빈도 (예: 'D', 'W', 'MS' 등)
+    """
+    # 기본 배수 설정 (일 기준)
+    multipliers = {"일": 1, "주": 7, "월": 30, "년": 365}
+    
+    # 데이터 자체가 '월별(M)' 데이터라면 단위를 다르게 해석해야 함
+    if freq_str and ('M' in freq_str or 'm' in freq_str):
+        multipliers = {"일": 0.03, "주": 0.25, "월": 1, "년": 12}
+    elif freq_str and ('W' in freq_str):
+        multipliers = {"일": 0.14, "주": 1, "월": 4, "년": 52}
+
+    total_steps = int(value * multipliers.get(unit, 1))
+    return max(total_steps, 1) # 최소 1개는 예측
+
 #########################################################################################
 
 if "df" not in st.session_state: st.session_state["df"] = None
@@ -361,43 +378,42 @@ with st.sidebar:
     if st.session_state["processed"] is not None:
         with st.container(border=True):
             st.subheader("⚙️ 모델 상세 설정")
-            
-            # [수정] selectbox의 값들을 아래 함수들(get_forecast 등)에서 사용하는 키워드와 일치시킴
             model_type = st.selectbox("예측 모델 선택", ["MA", "ES", "HW", "STL", "ARIMA", "SARIMA"], key="sel_model")
             method = st.selectbox("평가 방식", ["Rolling", "Block"], key="sel_method") 
-            horizon = st.number_input("예측 기간(시평)", min_value=1, value=7, key="in_horizon")
-            time_unit = st.selectbox("시간 단위 표시", ["일", "주", "월", "년"], key="sel_unit")
+            horizon_val = st.number_input("예측 기간 숫자", min_value=1, value=7, key="in_horizon")
+            time_unit = st.selectbox("시간 단위 선택", ["일", "주", "월", "년"], key="sel_unit")
     
             if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
+                
+                # [수정] 데이터의 빈도 파악 및 실제 예측 Step 계산
+                data_freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') else "D"
+                actual_steps = convert_horizon(horizon_val, time_unit, data_freq)
+                
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
                 
-                # 1. 모델 설정에 따른 예측값 생성
-                # [확인] model_type이 "MA", "ES" 등으로 정확히 전달되어 내부 else문을 타지 않게 함
+                # 1. 모델 예측 (평가용은 test_p 길이에 맞춤)
                 if method == "Rolling":
                     y_pred = rolling_forecast_fast(train_p, test_p, model_type)
                 else:
-                    y_pred = block_forecast(train_p, test_p, model_type, horizon)
+                    # Block 방식에서도 사용자가 설정한 시평(actual_steps) 반영
+                    y_pred = block_forecast(train_p, test_p, model_type, actual_steps)
                 
-                # 2. 누적 로그 업데이트 (예측평균 컬럼 포함)
+                # 2. 누적 로그 및 시각화 저장
                 metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
                 st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
                 
-                # 3. [중요] 시각화 누적을 위한 데이터 저장
-                # 모델 설정이 바뀔 때마다 고유한 키값으로 저장되어 그래프에 여러 선이 나타남
-                if "eval_preds" not in st.session_state: 
-                    st.session_state["eval_preds"] = {}
+                if "eval_preds" not in st.session_state: st.session_state["eval_preds"] = {}
+                st.session_state["eval_preds"][f"{model_type}_{method}"] = y_pred
                 
-                # 키값에 모델명과 방식을 조합해 설정을 바꿀 때마다 누적되도록 함
-                save_key = f"{model_type}_{method}"
-                st.session_state["eval_preds"][save_key] = y_pred
-                
-                # 4. 미래 예측 및 현재 상태 저장 (화면 리프레시 대응)
+                # 3. [핵심] 최종 미래 예측 (사용자가 입력한 '진짜 시평' 반영)
                 time_info = analyze_time_index(ps.index)
-                # 제안 주기(suggested_periods)를 정확히 반영하여 get_forecast 실행
-                st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, time_info['suggested_periods'][0])
+                # actual_steps를 horizon 인자로 전달!
+                st.session_state["forecast_res"] = get_forecast(ps, actual_steps, model_type, time_info['suggested_periods'][0])
                 st.session_state["current_y_pred"] = y_pred
+                
+                #st.success(f"✅ {time_unit} 단위 반영 완료: 실제 {actual_steps}개의 데이터 포인트를 예측합니다.")
     
             if st.button("🗑️ 로그 초기화", use_container_width=True):
                 st.session_state["perf_log"] = pd.DataFrame()
