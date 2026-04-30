@@ -557,15 +557,15 @@ with st.sidebar:
         with st.container(border=True):
             st.subheader("⚙️ 모델 상세 설정")
             # 4가지 옵션 일렬(세로) 배치
-            model_type = st.selectbox("예측 모델 선택", ["SARIMA", "ARIMA", "STL", "HW", "ES", "MA"], key="sel_model")
-            method = st.selectbox("평가 방식", ["Rolling", "Block"], key="sel_method")
+            model_type = st.selectbox("예측 모델 선택", ["MA(이동평균)","ES(지수평활)","Holt-Winter's", "STL", "ARIMA", "SARIMA"], key="sel_model")
+            method = st.checkbox("평가 방식", ["Rolling", "Block"], key="sel_method")
             horizon = st.number_input("예측 기간(시평)", min_value=1, value=7, key="in_horizon")
-            time_unit = st.selectbox("시간 단위 표시", ["일", "주", "월", "년"], key="sel_unit")
+            time_unit = st.checktbox("시간 단위 표시", ["일", "주", "월", "년"], key="sel_unit")
             
             st.divider()
             
             # 예측 실행 버튼
-            if st.button("🚀 수요 예측 실행", use_container_width=True, type="primary"):
+            if st.button("▶️ 수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
@@ -601,12 +601,12 @@ if st.session_state["processed"] is not None:
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True, height=450):
-            st.subheader("####전처리 결과 비교")
+            st.subheader("전처리 결과 비교")
             st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
     
     with col2:
         with st.container(border=True, height=450):
-            st.subheader("####정상성 및 통계 진단")
+            st.subheader("정상성 및 통계 진단")
             adf = run_stationarity_test(ps)
             lb = run_ljungbox_test(ps)
             
@@ -630,7 +630,7 @@ if st.session_state["processed"] is not None:
 
     # [2행] 시계열 분해 (원본+추세 / 계절성+잔차 2단 구성)
     with st.container(border=True):
-        st.subheader("####시계열 분해 결과(Decomposition)")
+        st.subheader("시계열 분해 결과(Decomposition)")
         time_info = analyze_time_index(ps.index)
         decomp_res = decompose_series(ps, time_info['suggested_periods'][0])
         
@@ -654,7 +654,7 @@ if st.session_state["processed"] is not None:
     # ---------------------------------------------------------------------------------------
     if st.session_state["forecast_res"] is not None:
         st.divider()
-        st.subheader("🔮 4️⃣ 최종 수요 예측 결과 및 분석 리포트")
+        st.subheader("📑 최종 수요 예측 결과 및 분석 리포트")
         
         # [병렬 배치] 왼쪽: 메인 차트(1.5 비율) | 오른쪽: 상세 분석 리포트(1 비율)
         res_row_col1, res_row_col2 = st.columns([1.5, 1])
@@ -702,7 +702,7 @@ if st.session_state["processed"] is not None:
                 selected_unit = st.session_state.get("sel_unit", "일")
                 agg_val = aggregate_forecast(f_res, freq=freq_map.get(selected_unit, "D"))
                 
-                st.info(f"✨ 해당 기간 **{selected_unit} 단위** 환산 예측치: **{agg_val:,.2f}**")
+                st.info(f"✔️ 해당 기간 **{selected_unit} 단위** 환산 예측치: **{agg_val:,.2f}**")
                 
                 st.write("**📅 일자별 상세 예측 데이터**")
                 f_table = forecast_table(f_res, future_dates)
@@ -713,7 +713,7 @@ if st.session_state["processed"] is not None:
     # ---------------------------------------------------------------------------------------
     # 5️⃣ 성능 평가 결과 및 모델 검증 (표 가독성 강화)
     # ---------------------------------------------------------------------------------------
-    st.subheader("📏 5️⃣ 성능 평가 결과 및 모델 검증")
+    st.subheader("📏 성능 평가 결과 및 모델 검증")
     
     # 누적 로그 표가 흐릿하게 보이지 않도록 컨테이너 밖으로 독립 및 st.table 사용
     if not st.session_state["perf_log"].empty:
