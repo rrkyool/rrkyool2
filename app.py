@@ -623,8 +623,8 @@ if st.session_state["processed"] is not None:
             else:
                 st.info("✅ 모델링에 적합한 패턴이 존재합니다.")
             
-            st.write("**데이터 기술 통계**")
-            st.dataframe(ps.describe().to_frame().T, use_container_width=True)
+            st.write(f"📅 **기간:** `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
+            st.write(f"🔄 **추정 주기:** `{selected_period}` (빈도: {time_info['frequency']})")
 
     st.divider()
 
@@ -645,6 +645,11 @@ if st.session_state["processed"] is not None:
         
         fig_decomp.update_layout(height=550, margin=dict(t=40, b=20))
         st.plotly_chart(fig_decomp, use_container_width=True)
+
+        decomp_res = decompose_series(ps, selected_period)
+        summary = summarize_decomposition(decomp_res)
+        st.write(f" **추세 강도:** `{summary['trend_strength']}`")
+        st.write(f" **계절성 강도:** `{summary['seasonal_strength']}`")
 
     st.divider()
 
