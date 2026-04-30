@@ -17,6 +17,7 @@ from pmdarima import auto_arima
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+
 # -----------------------------
 # 1. 데이터 로드
 # -----------------------------
@@ -246,18 +247,23 @@ def get_forecast(train, horizon, model_type, period=12):
 def rolling_forecast_fast(train, test, model_type):
     history = list(train)
     preds = []
+    
+    # ARIMA 계열은 속도를 위해 전용 클래스 사용, 나머지는 get_forecast 활용
     if model_type in ["ARIMA", "SARIMA"]:
         if model_type == "ARIMA":
             model = ARIMA(history, order=(1,1,1)).fit()
         else:
             model = SARIMAX(history, order=(1,1,1), seasonal_order=(1,1,1,12)).fit(disp=False)
+        
         for t in range(len(test)):
             yhat = model.forecast(steps=1)[0]
             preds.append(yhat)
             model = model.append([test.iloc[t]], refit=False)
     else:
+        # MA, ES, HW, STL 등 선택 시 모델 타입이 정확히 전달됨
         for t in range(len(test)):
-            current = history
+            current = pd.Series(history)
+            # 중요: get_forecast에 model_type을 그대로 전달하여 결과 차별화
             yhat = get_forecast(current, 1, model_type)["mean"][0]
             preds.append(yhat)
             history.append(test.iloc[t])
@@ -294,7 +300,8 @@ def evaluate_metrics(y_true, y_pred, model_name, method):
     return {
         "모델": model_name, "평가방법": method,
         "MAE": mae(y_true, y_pred), "RMSE": rmse(y_true, y_pred),
-        "MAPE": mape(y_true, y_pred), "TS": tracking_signal(y_true, y_pred)
+        "MAPE": mape(y_true, y_pred), "TS": tracking_signal(y_true, y_pred),
+        "예측평균": round(np.mean(y_pred), 2)  # 추가된 부분
     }
 
 def update_log(log_df, new_result):
@@ -331,6 +338,7 @@ if "df" not in st.session_state: st.session_state["df"] = None
 if "processed" not in st.session_state: st.session_state["processed"] = None
 if "perf_log" not in st.session_state: st.session_state["perf_log"] = pd.DataFrame()
 if "forecast_res" not in st.session_state: st.session_state["forecast_res"] = None
+if "eval_preds" not in st.session_state: st.session_state["eval_preds"] = {}
 
 st.set_page_config(layout="wide", page_title="C321032박하율_시계열 수요 예측")
 
@@ -347,35 +355,56 @@ with st.sidebar:
             if st.session_state["processed"] is None:
                 st.session_state["processed"] = preprocess_series(df.iloc[:, 0])
     
+    # -----------------------------
+    # 5. 예측 실행 섹션 (수정 완료)
+    # -----------------------------
     if st.session_state["processed"] is not None:
         with st.container(border=True):
             st.subheader("⚙️ 모델 상세 설정")
-            model_type = st.selectbox("예측 모델 선택", ["MA","ES","Holt-Winter's", "STL", "ARIMA", "SARIMA"], key="sel_model")
+            
+            # [수정] selectbox의 값들을 아래 함수들(get_forecast 등)에서 사용하는 키워드와 일치시킴
+            model_type = st.selectbox("예측 모델 선택", ["MA", "ES", "HW", "STL", "ARIMA", "SARIMA"], key="sel_model")
             method = st.selectbox("평가 방식", ["Rolling", "Block"], key="sel_method") 
             horizon = st.number_input("예측 기간(시평)", min_value=1, value=7, key="in_horizon")
             time_unit = st.selectbox("시간 단위 표시", ["일", "주", "월", "년"], key="sel_unit")
-            
+    
             if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
                 
+                # 1. 모델 설정에 따른 예측값 생성
+                # [확인] model_type이 "MA", "ES" 등으로 정확히 전달되어 내부 else문을 타지 않게 함
                 if method == "Rolling":
                     y_pred = rolling_forecast_fast(train_p, test_p, model_type)
                 else:
                     y_pred = block_forecast(train_p, test_p, model_type, horizon)
                 
+                # 2. 누적 로그 업데이트 (예측평균 컬럼 포함)
                 metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
                 st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
                 
+                # 3. [중요] 시각화 누적을 위한 데이터 저장
+                # 모델 설정이 바뀔 때마다 고유한 키값으로 저장되어 그래프에 여러 선이 나타남
+                if "eval_preds" not in st.session_state: 
+                    st.session_state["eval_preds"] = {}
+                
+                # 키값에 모델명과 방식을 조합해 설정을 바꿀 때마다 누적되도록 함
+                save_key = f"{model_type}_{method}"
+                st.session_state["eval_preds"][save_key] = y_pred
+                
+                # 4. 미래 예측 및 현재 상태 저장 (화면 리프레시 대응)
                 time_info = analyze_time_index(ps.index)
+                # 제안 주기(suggested_periods)를 정확히 반영하여 get_forecast 실행
                 st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, time_info['suggested_periods'][0])
                 st.session_state["current_y_pred"] = y_pred
-
+    
             if st.button("🗑️ 로그 초기화", use_container_width=True):
                 st.session_state["perf_log"] = pd.DataFrame()
+                st.session_state["eval_preds"] = {} 
+                st.session_state["forecast_res"] = None
                 st.rerun()
-
+                
 st.title("📈 시계열 분석 Project1 수요 예측 리포트")
 st.subheader("C321032 박하율")
 
@@ -453,25 +482,30 @@ if st.session_state["processed"] is not None:
     st.divider()
     st.subheader("📏 성능 평가 결과 및 모델 검증")
     
-    # [수정 요청 반영] 누적 로그와 모델 검증 차트를 한 행(Columns)에 배치
-    eval_col1, eval_col2 = st.columns([1, 1])
+    eval_col1, eval_col2 = st.columns([1, 1.2]) # 그래프를 조금 더 넓게 배치
     
     with eval_col1:
         st.write("**📊 누적 성능 평가 로그 (History Log)**")
         if not st.session_state["perf_log"].empty:
+            # 최신 로그가 위로 오게 하려면 .iloc[::-1] 사용 가능
             st.table(st.session_state["perf_log"])
-            st.info("💡 MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상 범위)")
+            st.info("💡 MAE·RMSE(낮음 우수), MAPE(오차율 %), TS(±4 정상 범위), 예측평균(단위당)")
         else:
             st.warning("기록된 로그가 없습니다.")
-
+    
+    
     with eval_col2:
         st.write("**🔍 모델 검증 데이터 비교 (Actual vs Prediction)**")
-        y_val_pred = st.session_state.get("current_y_pred")
-        if y_val_pred is not None:
+        if "eval_preds" in st.session_state and st.session_state["eval_preds"]:
             test_p = ps.iloc[int(len(ps)*0.8):]
-            model_name = st.session_state.get("sel_model", "Model")
-            fig_val = plot_forecast_vs_actual(test_p, {model_name: y_val_pred})
-            fig_val.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10))
+            fig_val = go.Figure()
+            
+            # 실제값은 하나만 (초록 점선)
+            fig_val.add_trace(go.Scatter(x=test_p.index, y=test_p.values, name="Actual", line=dict(color="green", dash='dot')))
+            
+            # [누적] 저장된 모든 예측 모델의 트레이스를 추가
+            for label, pred_values in st.session_state["eval_preds"].items():
+                fig_val.add_trace(go.Scatter(x=test_p.index, y=pred_values, name=f"Pred({label})"))
+                
+            fig_val.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig_val, use_container_width=True)
-        else:
-            st.warning("⚠️ '수요 예측 실행' 버튼 클릭 시 활성화됩니다.")
