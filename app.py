@@ -511,21 +511,21 @@ def aggregate_forecast(forecast_result, freq="D"):
 #########################################################################################
 
 # -----------------------------
-# 0. 세션 상태 초기화 (누적 기록 포함)
+# 0. 세션 상태 초기화 및 기본 설정
 # -----------------------------
 if "df" not in st.session_state: st.session_state["df"] = None
 if "processed" not in st.session_state: st.session_state["processed"] = None
 if "perf_log" not in st.session_state: st.session_state["perf_log"] = pd.DataFrame()
 if "forecast_res" not in st.session_state: st.session_state["forecast_res"] = None
 
-st.set_page_config(layout="wide", page_title="수요 예측 앱")
+st.set_page_config(layout="wide", page_title="수요 예측 시스템")
 
 # -----------------------------
-# 1. 데이터 업로드 및 기본 설정
+# 1. 상단 헤더 및 데이터 업로드 (자동 전처리 포함)
 # -----------------------------
 header_left, header_right = st.columns([4, 1])
 with header_left:
-    st.title("📈 시계열 분석 Project1 수요 예측")
+    st.title("📊 시계열 분석 Project1 수요 예측")
 with header_right:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("C321032 박하율")
@@ -533,201 +533,172 @@ with header_right:
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    with st.container(border=True, height=400):
+    with st.container(border=True, height=450):
         st.subheader("📂 데이터 업로드")
-        file = st.file_uploader("CSV 파일을 업로드하세요", type=["csv"])
+        file = st.file_uploader("CSV 파일을 업로드하세요", type=["csv"], key="uploader")
+        
         if file:
+            # 데이터 로드 및 인덱스 설정
             df = load_data(file)
-            # 날짜 컬럼 자동 인식 및 인덱스 설정
             df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0])
             df = df.set_index(df.columns[0])
             st.session_state["df"] = df
-            st.success("데이터 로드 완료!")
-
-        target_series = st.session_state["df"].iloc[:, 0]
-        if st.session_state["processed"] is None:
-            with st.spinner("데이터를 분석 중입니다..."):
-                st.session_state["processed"] = preprocess_series(target_series)
-            st.success("분석 완료!")
-        
-        st.write("**데이터 요약**")
-        st.dataframe(df.describe().T, use_container_width=True)
+            
+            # [자동화] 업로드 즉시 전처리 실행
+            target_series = df.iloc[:, 0]
+            if st.session_state["processed"] is None:
+                with st.spinner("데이터 분석 및 전처리 중..."):
+                    st.session_state["processed"] = preprocess_series(target_series)
+                st.success("분석 완료!")
+            
+            st.write("**데이터 요약 (Summary)**")
+            st.dataframe(df.describe().T, use_container_width=True)
 
 with col2:
     if st.session_state["df"] is not None:
-        with st.container(border=True, height=400):
-            st.subheader("📈시계열 시각화")
+        with st.container(border=True, height=450):
+            st.subheader("📈 전처리 결과 비교")
+            raw = st.session_state["df"].iloc[:, 0]
+            ps = st.session_state["processed"]
             
-            c1, c2 = st.columns(2)
+            # 미리보기와 차트를 1:1 병렬 배치
+            c1, c2 = st.columns([1, 2])
             with c1:
                 st.markdown("데이터 미리보기")
-                st.dataframe(df.head(), use_container_width=True)
+                st.dataframe(st.session_state["df"].head(8), use_container_width=True)
             with c2:
                 st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
 
 # -----------------------------
-# 3~6. 분석 리포트 영역 (전처리 완료 시 노출)
+# 2. 분석 리포트 (정상성 및 시계열 분해)
 # -----------------------------
 if st.session_state["processed"] is not None:
-ps = st.session_state["processed"]
-raw = st.session_state["df"].iloc[:, 0]
-
-# 3. 전처리 비교 시각화
-st.subheader("시계열 분석 리포트")
-col_stat1, col_stat2, col_stat3 = st.columns(3)
-
-with col_stat1:
-    with st.container(border=True):
-        st.subheader("ADF & Ljung-Box 검정")
-        adf = run_stationarity_test(ps) [cite: 6]
-        lb = run_ljungbox_test(ps) [cite: 6]
-        
-        # 1. ADF 검정 (정상성)
-        st.metric(
-            label="ADF p-value (정상성)", 
-            value=f"{adf['p_value']:.4f}", 
-            delta="정상 데이터" if adf['is_stationary'] else "비정상(차분 필요)",
-            delta_color="normal" if adf['is_stationary'] else "inverse"
-        )
-        
-        # 2. Ljung-Box 검정 (백색잡음 여부) [cite: 7]
-        # p-value가 0.05보다 크면 백색잡음(유의미한 패턴 없음)으로 판단
-        is_white_noise = lb['p_value'] > 0.05
-        st.metric(
-            label="Ljung-Box p-value (백색잡음)", 
-            value=f"{lb['p_value']:.4f}",
-            delta="백색잡음 (패턴 없음)" if is_white_noise else "자기상관 존재 (예측 가능)",
-            delta_color="off" if is_white_noise else "normal"
-        )
-        
-        if is_white_noise:
-            st.warning("⚠️ 백색잡음")
-        else:
-            st.info("✅ 모델링 적합")
-
-with row2_col2:
-    with st.container(border=True):
-        st.subheader("시계열 분해")
-        st.plotly_chart(plot_decomposition(decomp_res), use_container_width=True)
-
-with row2_col3:
-    with st.container(border=True):
-        st.subheader("〽️시계열 분해 요약")
-        decomp_res = decompose_series(ps, selected_period)
-        summary = summarize_decomposition(decomp_res)
-        st.write(f"추세 강도: **{summary['trend_strength']}**")
-        st.write(f"계절성 강도: **{summary['seasonal_strength']}**")
-
-# 5. 시계열 분해 차트
-st.subheader("5️⃣ 시계열 분해 결과")
-st.plotly_chart(plot_decomposition(decomp_res), use_container_width=True)
-
-st.divider()
-
-# -----------------------------
-# 7. 모델 선택 및 시평 설정
-# -----------------------------
-st.divider()
-st.subheader("⚙️모델 선택 및 설정")
-
-with st.container(border=True):
-    # 상단 요약 정보 (이미지 상단 메타데이터 영역)
-    time_info = analyze_time_index(st.session_state["processed"].index)
-    r1, r2 = st.rows(2)
-    with r1:
-        st.markdown(f"📅 **Datetime 범위:** `{time_info['start'].strftime('%Y.%m.%d')} ~ {time_info['end'].strftime('%Y.%m.%d')}`")
-    with r2:
-        st.markdown(f"🔄 **평균 데이터 주기:** `1일 (총 {len(st.session_state['processed'])}개 샘플)`")
+    st.divider()
+    ps = st.session_state["processed"]
+    time_info = analyze_time_index(ps.index)
+    selected_period = time_info['suggested_periods'][0]
     
+    rep_col1, rep_col2 = st.columns([1, 2])
+    
+    with rep_col1:
+        with st.container(border=True):
+            st.subheader("✅ 통계적 진단")
+            adf = run_stationarity_test(ps)
+            lb = run_ljungbox_test(ps)
+            
+            # 1. ADF 검정
+            st.metric(
+                label="ADF p-value (정상성)", 
+                value=f"{adf['p_value']:.4f}", 
+                delta="정상" if adf['is_stationary'] else "비정상",
+                delta_color="normal" if adf['is_stationary'] else "inverse"
+            )
+            
+            # 2. Ljung-Box 검정 (백색잡음 검정 강화)
+            is_white_noise = lb['p_value'] > 0.05
+            st.metric(
+                label="Ljung-Box p-value (백색잡음)", 
+                value=f"{lb['p_value']:.4f}",
+                delta="백색잡음 (패턴없음)" if is_white_noise else "자기상관 (패턴있음)",
+                delta_color="off" if is_white_noise else "normal"
+            )
+            
+            if is_white_noise:
+                st.warning("⚠️ 데이터가 무작위 노이즈(백색잡음)에 가깝습니다. 예측력이 낮을 수 있습니다.")
+            else:
+                st.info("✅ 데이터에서 유의미한 시계열 패턴이 발견되었습니다.")
+
+    with rep_col2:
+        with st.container(border=True):
+            st.subheader("🔍 시계열 분해 (Decomposition)")
+            decomp_res = decompose_series(ps, selected_period)
+            st.plotly_chart(plot_decomposition(decomp_res), use_container_width=True)
+
+    # -----------------------------
+    # 3. 모델 선택 및 설정
+    # -----------------------------
     st.divider()
+    st.subheader("⚙️ 모델 선택 및 설정")
+    with st.container(border=True):
+        m_col1, m_col2 = st.columns(2)
+        with m_col1:
+            st.write(f"📅 **기간:** `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
+            model_type = st.selectbox("예측 알고리즘 선택", ["SARIMA", "ARIMA", "STL", "HW", "ES", "MA"], key="m_type")
+            horizon = st.number_input("예측 기간 설정 (Horizon)", min_value=1, value=7, key="m_horizon")
+        with m_col2:
+            st.write(f"🔄 **추정 주기:** `{selected_period}` (빈도: {time_info['frequency']})")
+            eval_method = st.selectbox("평가 방식", ["Rolling", "Block"], key="m_method")
+            time_unit = st.selectbox("시간 단위 표시", ["일", "주", "월", "년"], key="m_unit")
 
-    # 모델 설정 입력 영역 (2x2 그리드)
-    col_input1, col_input2 = st.columns(2)
-    with col_input1:
-        model_type = st.selectbox("예측 모델", ["SARIMA", "ARIMA", "STL", "HW", "ES", "MA"], key="model_sel_box")
-        horizon = st.number_input("예측 길이(시평)", min_value=1, value=7, key="horizon_input")
-    with col_input2:
-        method = st.checktbox("평가 방식", ["Rolling", "Block"], key="method_sel_box")
-        time_unit = st.checkbox("시간 단위", ["일", "주", "월", "년"], key="unit_sel_box")
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if st.button("▶️ 예측 모델 실행", use_container_width=True, type="primary"):
+                split_idx = int(len(ps) * 0.8)
+                train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
+                
+                # 모델 검증 및 예측
+                y_pred = evaluate_forecast(train_p, test_p, model_type, horizon)
+                metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, eval_method)
+                
+                st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
+                st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, selected_period)
+                st.session_state["current_val_pred"] = y_pred # 검증 시각화용
+                st.toast(f"{model_type} 분석 완료!")
+        with btn_col2:
+            if st.button("🗑️ 로그 초기화", use_container_width=True):
+                st.session_state["perf_log"] = pd.DataFrame()
+                st.rerun()
 
-    # 실행 버튼부
-    if st.button("▶️ 예측 실행", use_container_width=True, type="primary"):
-        ps = st.session_state["processed"]
-        # 성능 평가용 Split 및 검증 실행
-        split_idx = int(len(ps) * 0.8)
-        train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
-        
-        y_pred = evaluate_forecast(train_p, test_p, model_type, horizon)
-        metrics = evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method)
-        
-        # 세션 상태 업데이트 
-        st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
-        st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, time_info['suggested_periods'][0])
-        st.toast(f"{model_type} 모델 예측 완료!")
+    # -----------------------------
+    # 4. 성능 평가 및 예측 결과 리포트 (최종 시각화)
+    # -----------------------------
+    if st.session_state["forecast_res"] is not None:
+        st.divider()
+        res_col1, res_col2 = st.columns([1, 1])
 
-    if st.button("🗑️ 로그 초기화", use_container_width=True):
-        st.session_state["perf_log"] = pd.DataFrame()
-        st.rerun()
+        # 오른쪽: 수요 예측 메인 차트 (요청하신 스타일 반영)
+        with res_col1:
+            st.markdown("### 🔮 수요 예측 결과 리포트")
+            with st.container(border=True, height=600):
+                f_res = st.session_state["forecast_res"]
+                future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
+                
+                fig_all = go.Figure()
+                # 과거 데이터 (파란색)
+                fig_all.add_trace(go.Scatter(x=ps.index, y=ps.values, name="과거 실제값", line=dict(color="#1f77b4")))
+                # 미래 예측 (빨간색, 굵게)
+                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", 
+                                             line=dict(color="#ef553b", width=4), mode='lines+markers'))
+                # 신뢰구간
+                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False))
+                fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', 
+                                             fillcolor='rgba(239, 85, 59, 0.1)', line=dict(width=0), name="신뢰구간(95%)"))
 
-# -----------------------------
-# 8~9. 평가 결과 및 예측 리포트
-# -----------------------------
-if st.session_state["forecast_res"] is not None:
-    st.divider()
-    # 이미지 레이아웃에 맞춰 컬럼 배치 (평가 로그 / 수요 예측 결과)
-    res_col1, res_col2 = st.columns([1, 1])
+                fig_all.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10),
+                                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_all, use_container_width=True)
+                
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; border-left: 5px solid #ef553b;">
+                    ✨ <b>분석 요약:</b> 향후 {horizon}{time_unit}간 예상 평균 수요는 <b>{f_res['mean'].mean():,.1f}</b>입니다.
+                </div>
+                """, unsafe_allow_html=True)
 
-    # 📏 왼쪽: 평가 결과 및 로그 섹션
-    with res_col1:
-        st.markdown("### 📊 수요 예측 결과")
-        with st.container(border=True, height=580):
-            f_res = st.session_state["forecast_res"]
-            ps = st.session_state["processed"]
-            
-            # 미래 날짜 생성 (인덱스 활용) 
-            future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
-            
-            # 요청하신 스타일의 메인 차트 구성
-            fig_all = go.Figure()
-            # 과거 데이터 (파란색)
-            fig_all.add_trace(go.Scatter(x=ps.index, y=ps.values, name="과거 데이터", line=dict(color="#1f77b4")))
-            # 미래 예측 (빨간색, 굵게)
-            fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측", 
-                                         line=dict(color="#ef553b", width=4), mode='lines+markers'))
-            
-            # 신뢰구간 (이미지 스타일의 밴드 추가) 
-            fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False))
-            fig_all.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', 
-                                         fillcolor='rgba(239, 85, 59, 0.1)', line=dict(width=0), name="신뢰구간"))
-
-            fig_all.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10),
-                                  legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_all, use_container_width=True)
-            
-            # 하단 결과 요약 텍스트 박스 (이미지 하단 스타일) [cite: 43, 54]
-            st.markdown(f"""
-            <div style="background-color: #e8f0fe; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4;">
-                ✨ <b>결과 요약:</b> 향후 {horizon}{time_unit}간 평균 예상 수요는 <b>{f_res['mean'].mean():,.1f}</b>입니다.
-            </div>
-            """, unsafe_allow_html=True)
-
-    # 📊 오른쪽: 수요 예측 결과 섹션
-    with res_col2:
-        st.markdown("### 📏 평가 결과 및 로그")
-        with st.container(border=True, height=580):
-            # 1. 성능 지표 테이블 [cite: 34, 117]
-            if not st.session_state["perf_log"].empty:
-                st.dataframe(st.session_state["perf_log"], use_container_width=True)
-            
-            st.info("💡 **지표 참고 사항:** MAE(낮음 우수), MdRAE(<1 우수), TS(±4 정상)")
-            
-            # 2. 모델별 검증 예측 비교 (이미지 하단 점선 차트 영역) 
-            st.markdown("**검증 데이터 예측 비교 (Actual vs Pred)**")
-            
-            # 검증용 데이터 준비 (evaluate_forecast 활용)
-            split_idx = int(len(ps) * 0.8)
-            test_p = ps.iloc[split_idx:]
-            # 최신 모델의 검증 결과 시각화
-            fig_val = plot_forecast_vs_actual(test_p, {model_type: y_pred})
-            fig_val.update_layout(height=280, margin=dict(l=5, r=5, t=10, b=10), showlegend=True)
-            st.plotly_chart(fig_val, use_container_width=True)
+        # 왼쪽: 평가 로그 및 검증 차트
+        with res_col2:
+            st.markdown("### 📏 모델 성능 및 검증")
+            with st.container(border=True, height=600):
+                st.write("**성능 평가 로그 (Accumulated)**")
+                st.dataframe(st.session_state["perf_log"], use_container_width=True, height=200)
+                st.info("💡 **지표 가이드:** MAE·RMSE(낮을수록 우수), MAPE(오차율 %), TS(±4 이내 정상)")
+                
+                st.divider()
+                st.write("**검증 데이터 예측 비교 (Actual vs Pred)**")
+                split_idx = int(len(ps) * 0.8)
+                test_p = ps.iloc[split_idx:]
+                y_val_pred = st.session_state.get("current_val_pred")
+                
+                if y_val_pred is not None:
+                    fig_val = plot_forecast_vs_actual(test_p, {model_type: y_val_pred})
+                    fig_val.update_layout(height=250, margin=dict(l=5, r=5, t=10, b=10))
+                    st.plotly_chart(fig_val, use_container_width=True)
