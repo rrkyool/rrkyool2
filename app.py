@@ -622,7 +622,9 @@ if st.session_state["processed"] is not None:
                 st.warning("⚠️ 데이터가 무작위 노이즈(백색잡음)에 가깝습니다.")
             else:
                 st.info("✅ 모델링에 적합한 패턴이 존재합니다.")
-            
+
+            ps = st.session_state["processed"]
+            time_info = analyze_time_index(ps.index)
             st.write(f"📅 **기간:** `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
             st.write(f"🔄 **추정 주기:** `{selected_period}` (빈도: {time_info['frequency']})")
 
