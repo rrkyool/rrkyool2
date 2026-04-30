@@ -149,113 +149,107 @@ def go_home():
     st.session_state.view = "dashboard"
     st.session_state.selected = None
 
+
 # -----------------------------
-# 대시보드 (에러 수정 및 레이아웃 개선)
+# dashboard
 # -----------------------------
+
 def render_dashboard():
-    st.title("📊 수요 예측 대시보드")
-
-    df = st.session_state["df"]
-    processed = st.session_state["processed"]
-
-    # 1행: 데이터 업로드 및 전처리 (이미지의 1, 2, 3번 영역)
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        with st.container(border=True): # 테두리를 추가하여 카드 느낌 부여
-            st.subheader("1️⃣ 데이터 업로드")
-            file = st.file_uploader("CSV 업로드", key="file_uploader") # key 추가
-
+    st.title("📊 단변량 수요 예측 시스템")
+    
+    # 1단계: 데이터 업로드 (단변량 데이터 전제)
+    if st.session_state["df"] is None:
+        with st.container(border=True):
+            st.subheader("📂 데이터 업로드")
+            file = st.file_uploader("분석할 CSV 파일을 업로드하세요 (단변량 데이터 전용)", key="main_loader")
             if file:
                 df = load_data(file)
                 st.session_state["df"] = df
+                # 업로드 즉시 첫 번째 수치형 컬럼을 자동으로 타겟 설정
+                # 단변량 데이터이므로 첫 번째 수치 컬럼을 바로 사용함
+                numeric_cols = df.select_dtypes(include=[np.number]).columns
+                if len(numeric_cols) > 0:
+                    st.session_state["target_col"] = numeric_cols[0]
+                    # 자동으로 전처리 실행 로직 연결
+                    st.session_state["processed"] = preprocess_series(df[numeric_cols[0]])
+                st.rerun()
+        return
 
-            if df is not None:
-                st.write("데이터 미리보기")
-                st.dataframe(df.head(), use_container_width=True)
+    df = st.session_state["df"]
+    target = st.session_state["target_col"]
+    
+    # ---------------------------------------------------------
+    # [1단] 데이터 정보 및 전처리 결과 비교 (상단 2열 배치로 크기 확대)
+    # ---------------------------------------------------------
+    col1, col2 = st.columns([1, 2]) # 가로 비중을 키워 차트 시인성 확보 [cite: 36]
+
+    with col1:
+        with st.container(border=True, height=500): # 컨테이너 높이 확대 [cite: 32]
+            st.subheader("📋 데이터 요약 정보")
+            st.write(f"**대상 컬럼:** `{target}`")
+            st.write(df[target].describe())
+            
+            st.divider()
+            if st.button("🔄 전처리 재실행", use_container_width=True):
+                st.session_state["processed"] = preprocess_series(df[target])
+                st.toast("전처리가 완료되었습니다!")
+                st.rerun()
 
     with col2:
-        with st.container(border=True):
-            st.subheader("2️⃣ 전처리 설정")
-            if df is not None:
-                col = st.selectbox("분석 컬럼 선택", df.columns, key="select_col")
-                
-                # 버튼에 고유 key 부여하여 DuplicateWidgetID 해결
-                if st.button("전처리 실행", key="btn_preprocess"):
-                    st.session_state["target_col"] = col
-                    processed = preprocess_series(df[col])
-                    st.session_state["processed"] = processed
-                    st.rerun()
-            else:
-                st.info("데이터를 먼저 업로드해주세요.")
+        with st.container(border=True, height=500):
+            st.subheader("📈 전처리 전/후 시계열 비교")
+            if st.session_state["processed"] is not None:
+                # 기존 plot_preprocessing 함수 적용 
+                fig = plot_preprocessing(df[target], st.session_state["processed"])
+                st.plotly_chart(fig, use_container_width=True)
 
-    with col3:
-        with st.container(border=True):
-            st.subheader("3️⃣ 전처리 결과 비교")
-            if processed is not None:
-                raw = df[st.session_state["target_col"]]
-                st.plotly_chart(plot_preprocessing(raw, processed), use_container_width=True)
-                # 고유 key 추가
-                st.button("🔍 확대", key="zoom_preprocess", on_click=lambda: go_detail("preprocess"))
-
-    # 2행: 분석 및 검정 (이미지의 4, 5, 6번 영역)
-    if processed is not None:
+    # ---------------------------------------------------------
+    # [2단] 기술적 분석 (정상성 및 분해)
+    # ---------------------------------------------------------
+    if st.session_state["processed"] is not None:
         st.divider()
-        col4, col5, col6 = st.columns(3)
+        col3, col4 = st.columns([1, 2])
+
+        with col3:
+            with st.container(border=True, height=600):
+                st.subheader("🔍 통계적 진단")
+                # 실제 함수 적용 및 결과 표시 
+                adf_res = run_stationarity_test(st.session_state["processed"])
+                lb_res = run_ljungbox_test(st.session_state["processed"])
+                
+                st.metric("ADF (정상성) p-value", f"{adf_res['p_value']:.4f}")
+                st.metric("Ljung-Box (백색잡음) p-value", f"{lb_res['p_value']:.4f}")
+                
+                st.info("p-value < 0.05 이면 통계적 유의성이 있음")
 
         with col4:
-            with st.container(border=True):
-                st.subheader("4️⃣ 정상성 검정")
-                adf = run_stationarity_test(processed)
-                lb = run_ljungbox_test(processed)
-                
-                m_col1, m_col2 = st.columns(2)
-                m_col1.metric("ADF p-value", f"{adf['p_value']:.4f}")
-                m_col2.metric("Ljung-Box p-value", f"{lb['p_value']:.4f}")
-                
-                st.button("🔍 확대", key="zoom_stationarity", on_click=lambda: go_detail("stationarity"))
+            with st.container(border=True, height=600):
+                st.subheader("🧩 시계열 구성 요소 분해")
+                # 기존 decompose_series 함수 적용 
+                dec_res = decompose_series(st.session_state["processed"], 7)
+                st.plotly_chart(plot_decomposition(dec_res), use_container_width=True)
 
-        with col5:
-            with st.container(border=True):
-                st.subheader("5️⃣ 시계열 분해")
-                result = decompose_series(processed, 7)
-                st.plotly_chart(plot_decomposition(result), use_container_width=True)
-                st.button("🔍 확대", key="zoom_decompose", on_click=lambda: go_detail("decompose"))
-
-        with col6:
-            with st.container(border=True):
-                st.subheader("6️⃣ 기간 및 주기 분석")
-                st.info("시계열 데이터의 주기를 분석하는 영역입니다.")
-                # 분석 로직 추가 가능 공간
-                st.button("🔍 확대", key="zoom_period", on_click=lambda: go_detail("period"))
-
-    # 3행: 모델링 및 결과 (이미지의 7, 8, 9번 영역)
-    if processed is not None:
+        # ---------------------------------------------------------
+        # [3단] 최종 예측 (하단 전체 너비 활용)
+        # ---------------------------------------------------------
         st.divider()
-        col7, col8, col9 = st.columns(3)
-
-        with col7:
-            with st.container(border=True):
-                st.subheader("7️⃣ 모델 선택 및 설정")
-                model_type = st.multiselect("모델 선택", ["ARIMA", "SARIMA", "Prophet", "XGBoost", "LSTM"], default=["ARIMA"])
-                if st.button("예측 실행", key="btn_forecast"):
-                    st.session_state["forecast"] = get_forecast(processed, 14)
+        with st.container(border=True):
+            st.subheader("🔮 향후 수요 예측 결과")
+            f_col1, f_col2 = st.columns([1, 3])
+            
+            with f_col1:
+                horizon = st.number_input("예측 기간 (일/시 단위)", min_value=1, max_value=365, value=14)
+                if st.button("🎯 예측 실행", use_container_width=True):
+                    # 기존 get_forecast 함수 적용 
+                    st.session_state["forecast"] = get_forecast(st.session_state["processed"], horizon)
                     st.rerun()
-
-        with col8:
-            with st.container(border=True):
-                st.subheader("8️⃣ 성능 평가")
+                
                 if st.session_state["forecast"] is not None:
-                    st.write("모델별 성능 비교 지표가 표시됩니다.")
-                else:
-                    st.write("예측을 실행해주세요.")
+                    f_mean = st.session_state["forecast"]["mean"]
+                    st.metric("평균 예상 수요", f"{f_mean.mean():.2f}")
 
-        with col9:
-            with st.container(border=True):
-                st.subheader("9️⃣ 수요 예측 결과")
+            with f_col2:
                 if st.session_state["forecast"] is not None:
-                    st.plotly_chart(
-                        plot_forecast_result(processed, st.session_state["forecast"]),
-                        use_container_width=True
-                    )
-                    st.button("🔍 확대", key="zoom_forecast", on_click=lambda: go_detail("forecast"))
+                    # 기존 plot_forecast_result 함수 적용 
+                    fig_final = plot_forecast_result(st.session_state["processed"], st.session_state["forecast"])
+                    st.plotly_chart(fig_final, use_container_width=True)
