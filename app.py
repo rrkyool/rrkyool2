@@ -558,9 +558,19 @@ with st.sidebar:
             st.subheader("⚙️ 모델 상세 설정")
             # 4가지 옵션 일렬(세로) 배치
             model_type = st.selectbox("예측 모델 선택", ["MA(이동평균)","ES(지수평활)","Holt-Winter's", "STL", "ARIMA", "SARIMA"], key="sel_model")
-            method = st.checkbox("평가 방식", ["Rolling", "Block"], key="sel_method")
+            method = st.radio(
+            "평가 방식", 
+            ["Rolling", "Block"], 
+            key="sel_method",
+            horizontal=False # 일렬(세로) 배치를 위해 False 설정
+            )    
             horizon = st.number_input("예측 기간(시평)", min_value=1, value=7, key="in_horizon")
-            time_unit = st.checktbox("시간 단위 표시", ["일", "주", "월", "년"], key="sel_unit")
+            time_unit = st.radio(
+            "시간 단위 표시", 
+            ["일", "주", "월", "년"], 
+            key="sel_unit",
+            horizontal=False
+            )
             
             st.divider()
             
