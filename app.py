@@ -126,18 +126,28 @@ def decompose_series(series, period):
     return result
 
 def plot_decomposition(result):
+    # 2행 1열 구조로 변경 (상단: 원본+추세, 하단: 계절성+잔차)
     fig = make_subplots(
-        rows=4, cols=1,
+        rows=2, cols=1,
         shared_xaxes=True,
-        subplot_titles=("원본", "추세", "계절성", "잔차")
+        vertical_spacing=0.15,
+        subplot_titles=("📈 원본 데이터 및 추세 (Observed & Trend)", "🍂 계절성 및 잔차 (Seasonal & Residual)")
     )
 
-    fig.add_trace(go.Scatter(y=result.observed, name="Observed"), row=1, col=1)
-    fig.add_trace(go.Scatter(y=result.trend, name="Trend"), row=2, col=1)
-    fig.add_trace(go.Scatter(y=result.seasonal, name="Seasonal"), row=3, col=1)
-    fig.add_trace(go.Scatter(y=result.resid, name="Residual"), row=4, col=1)
+    # 1. 상단: 원본 데이터(회색) + 추세선(파란색)
+    fig.add_trace(go.Scatter(y=result.observed, name="Original", line=dict(color="gray", width=1), opacity=0.5), row=1, col=1)
+    fig.add_trace(go.Scatter(y=result.trend, name="Trend", line=dict(color="#1f77b4", width=2)), row=1, col=1)
 
-    fig.update_layout(height=800, showlegend=False)
+    # 2. 하단: 계절성(녹색) + 잔차(주황색/점선)
+    fig.add_trace(go.Scatter(y=result.seasonal, name="Seasonal", line=dict(color="#2ca02c", width=1.5)), row=2, col=1)
+    fig.add_trace(go.Scatter(y=result.resid, name="Residual", line=dict(color="#ff7f0e", width=1, dash="dot")), row=2, col=1)
+
+    fig.update_layout(
+        height=450,  # 컨테이너 높이에 맞춰 최적화
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
     return fig
 
 def summarize_decomposition(result):
@@ -570,7 +580,7 @@ with col2:
                 st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
 
 # -----------------------------
-# 2. 분석 리포트 (정상성 및 시계열 분해)
+# 2. 분석 리포트 (레이아웃 개선 버전)
 # -----------------------------
 if st.session_state["processed"] is not None:
     st.divider()
@@ -578,40 +588,41 @@ if st.session_state["processed"] is not None:
     time_info = analyze_time_index(ps.index)
     selected_period = time_info['suggested_periods'][0]
     
-    rep_col1, rep_col2 = st.columns([1, 2])
+    # 컬럼 비율 조정 (검정 지표 : 시계열 분해 = 1 : 2.5)
+    rep_col1, rep_col2 = st.columns([1, 2.5])
     
     with rep_col1:
-        with st.container(border=True):
+        # 왼쪽 컨테이너의 높이를 고정하여 오른쪽 차트와 맞춤
+        with st.container(border=True, height=520): 
             st.subheader("✅ 통계적 진단")
             adf = run_stationarity_test(ps)
             lb = run_ljungbox_test(ps)
             
-            # 1. ADF 검정
-            st.metric(
-                label="ADF p-value (정상성)", 
-                value=f"{adf['p_value']:.4f}", 
-                delta="정상" if adf['is_stationary'] else "비정상",
-                delta_color="normal" if adf['is_stationary'] else "inverse"
-            )
+            st.metric(label="ADF p-value (정상성)", value=f"{adf['p_value']:.4f}", 
+                      delta="정상" if adf['is_stationary'] else "비정상",
+                      delta_color="normal" if adf['is_stationary'] else "inverse")
             
-            # 2. Ljung-Box 검정 (백색잡음 검정 강화)
             is_white_noise = lb['p_value'] > 0.05
-            st.metric(
-                label="Ljung-Box p-value (백색잡음)", 
-                value=f"{lb['p_value']:.4f}",
-                delta="백색잡음 (패턴없음)" if is_white_noise else "자기상관 (패턴있음)",
-                delta_color="off" if is_white_noise else "normal"
-            )
+            st.metric(label="Ljung-Box p-value (백색잡음)", value=f"{lb['p_value']:.4f}",
+                      delta="패턴 없음" if is_white_noise else "패턴 존재",
+                      delta_color="off" if is_white_noise else "normal")
+            
+            st.divider()
+            # 분해 요약 정보 추가 (컨테이너 하단 채우기)
+            decomp_res = decompose_series(ps, selected_period)
+            summary = summarize_decomposition(decomp_res)
+            st.write(f"📊 **추세 강도:** `{summary['trend_strength']}`")
+            st.write(f"🔄 **계절성 강도:** `{summary['seasonal_strength']}`")
             
             if is_white_noise:
-                st.warning("⚠️ 데이터가 무작위 노이즈(백색잡음)에 가깝습니다. 예측력이 낮을 수 있습니다.")
+                st.warning("⚠️ 예측이 어려운 데이터입니다.")
             else:
-                st.info("✅ 데이터에서 유의미한 시계열 패턴이 발견되었습니다.")
+                st.success("✅ 분석 모델링에 적합합니다.")
 
     with rep_col2:
-        with st.container(border=True):
-            st.subheader("🔍 시계열 분해 (Decomposition)")
-            decomp_res = decompose_series(ps, selected_period)
+        with st.container(border=True, height=520):
+            st.subheader("🔍 시계열 분해 결과 (Decomposition)")
+            # 수정된 plot_decomposition 함수 호출
             st.plotly_chart(plot_decomposition(decomp_res), use_container_width=True)
 
     # -----------------------------
