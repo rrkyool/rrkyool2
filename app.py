@@ -635,26 +635,51 @@ if st.session_state["processed"] is not None:
     # [2행] 시계열 분해 (원본+추세 / 계절성+잔차 2단 구성)
     with st.container(border=True):
         st.subheader("시계열 분해 결과(Decomposition)")
+        
+        # 분석에 필요한 기본 정보 추출
         time_info = analyze_time_index(ps.index)
-        decomp_res = decompose_series(ps, time_info['suggested_periods'][0])
+        # 시스템이 추정한 주기를 변수로 안전하게 저장 (selected_period 대신 사용) 
+        current_period = time_info['suggested_periods'][0]
+        decomp_res = decompose_series(ps, current_period)
         
-        # 수정된 2x1 레이아웃 적용
-        fig_decomp = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.12,
-                                   subplot_titles=("📈 원본 및 추세 (Observed & Trend)", "🍂 계절성 및 잔차 (Seasonal & Residual)"))
+        # [병렬 배치] 왼쪽: 차트(2 비율) | 오른쪽: 분석 요약(1 비율) [cite: 814]
+        decomp_col1, decomp_col2 = st.columns([2, 1])
         
-        fig_decomp.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
-        fig_decomp.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
-        fig_decomp.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=2, col=1)
-        fig_decomp.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=2, col=1)
-        
-        fig_decomp.update_layout(height=550, margin=dict(t=40, b=20))
-        st.plotly_chart(fig_decomp, use_container_width=True)
-
-        decomp_res = decompose_series(ps, selected_period)
-        summary = summarize_decomposition(decomp_res)
-        st.write(f" **추세 강도:** `{summary['trend_strength']}`")
-        st.write(f" **계절성 강도:** `{summary['seasonal_strength']}`")
-
+        with decomp_col1:
+            # 수정된 2x1 레이아웃 적용
+            fig_decomp = make_subplots(
+                rows=2, cols=1, 
+                shared_xaxes=True, 
+                vertical_spacing=0.12,
+                subplot_titles=("📈 원본 및 추세 (Observed & Trend)", "🍂 계절성 및 잔차 (Seasonal & Residual)")
+            )
+            
+            fig_decomp.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
+            fig_decomp.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
+            fig_decomp.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=2, col=1)
+            fig_decomp.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=2, col=1)
+            
+            fig_decomp.update_layout(height=520, margin=dict(t=40, b=20))
+            st.plotly_chart(fig_decomp, use_container_width=True, key="decomp_plot")
+    
+        with decomp_col2:
+            # 그래프 높이에 맞춰 분석 결과 배치 [cite: 561]
+            st.write("시계열 분해 리포트")
+            summary = summarize_decomposition(decomp_res)
+            
+            # 가독성 높은 메트릭 카드로 강도 표시 
+            st.metric("📈 추세 강도", f"{summary['trend_strength']:.2f}")
+            st.metric("🍂 계절성 강도", f"{summary['seasonal_strength']:.2f}")
+            
+            st.divider()
+            
+            st.info(f"""
+            **💡 분석 가이드**
+            * **추세 강도**: 전체 변동 중 추세가 차지하는 비중
+            * **계절성 강도**: 주기적인 패턴의 뚜렷함
+            * 현재 적용된 분석 주기: **{current_period}**
+            """)
+    
     st.divider()
 
     # [3행] 수요 예측 결과 & 성능 평가 로그
