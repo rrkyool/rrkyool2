@@ -18,31 +18,24 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 # -----------------------------
-# 기본 설정
-# -----------------------------
-st.set_page_config(layout="wide")
-
-# -----------------------------
-# 상태 초기화
-# -----------------------------
-for key in ["df", "processed", "forecast", "target_col", "view", "selected"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-
-if st.session_state["view"] is None:
-    st.session_state["view"] = "dashboard"
-
-# -----------------------------
 # 1. 데이터 로드
 # -----------------------------
 def load_data(file):
-    for enc in ["utf-8", "cp949", "euc-kr"]:
+    encodings = ["utf-8", "cp949", "euc-kr"]
+    last_error = None
+
+    for enc in encodings:
         try:
             file.seek(0)
-            return pd.read_csv(file, encoding=enc)
-        except:
-            continue
-    return None
+            df = pd.read_csv(file, encoding=enc)
+            return df
+        except UnicodeDecodeError as e:
+            last_error = e
+        except Exception as e:
+            # 인코딩 문제가 아닌 경우 바로 실패 처리
+            raise ValueError(f"파일을 읽는 중 오류 발생: {e}")
+
+    raise ValueError(f"지원되지 않는 인코딩입니다. 마지막 오류: {last_error}")
 
 # -----------------------------
 # 2. 전처리
@@ -50,206 +43,622 @@ def load_data(file):
 def hampel_filter(series, window=5, n=3):
     series = series.astype(float)
     new = series.copy()
-    k = 1.4826
+
+    k = 1.4826  # scale factor
 
     for i in range(len(series)):
-        start = max(i-window, 0)
-        end = min(i+window+1, len(series))
+        start = max(i - window, 0)
+        end = min(i + window + 1, len(series))
 
         win = series.iloc[start:end]
         med = np.median(win)
-        mad = np.median(np.abs(win-med))
+        mad = np.median(np.abs(win - med))
 
         if mad == 0:
             continue
 
-        if abs(series.iloc[i]-med) > n*k*mad:
+        threshold = n * k * mad
+
+        if abs(series.iloc[i] - med) > threshold:
             new.iloc[i] = med
 
     return new
 
-def denoise_series(series):
+def denoise_series(series, window=11, poly=2):
     return pd.Series(
-        savgol_filter(series, 11, 2),
+        savgol_filter(series, window_length=window, polyorder=poly),
         index=series.index
     )
-
+    
 def preprocess_series(series):
     s = series.astype(float)
     s = s.interpolate(limit_direction='both')
-    s = hampel_filter(s)
-    s = denoise_series(s)
+    s = hampel_filter(s, window=5, n=3)
+    s = denoise_series(s)  # Savitzky-Golay 추천
     return s
 
 def plot_preprocessing(raw, processed):
     fig = go.Figure()
-    fig.add_trace(go.Scatter(y=raw, name="원본", opacity=0.5))
-    fig.add_trace(go.Scatter(y=processed, name="전처리"))
+
+    fig.add_trace(go.Scatter(y=raw, name="원본", opacity=0.5, line=dict(color="gray")))
+    fig.add_trace(go.Scatter(y=processed, name="전처리", line=dict(color="blue")))
+
     return fig
 
 # -----------------------------
 # 3. 정상성
 # -----------------------------
 def run_stationarity_test(series):
-    stat, p, *_ = adfuller(series.dropna())
-    return {"p_value": p}
+    series = series.dropna()
 
-def run_ljungbox_test(series):
-    p = acorr_ljungbox(series.dropna(), lags=[10], return_df=True)['lb_pvalue'].iloc[0]
-    return {"p_value": p}
+    if len(series) < 10:
+        raise ValueError("데이터가 너무 짧아서 ADF 검정을 수행할 수 없습니다.")
+
+    stat, p_value, *_ = adfuller(series)
+
+    return {
+        "p_value": p_value,
+        "is_stationary": p_value < 0.05
+    }
+
+def run_ljungbox_test(series, lags=12):
+    series = series.dropna()
+
+    result = acorr_ljungbox(series, lags=[lags], return_df=True)
+    p_value = result['lb_pvalue'].iloc[0]
+
+    return {
+        "p_value": p_value,
+        "has_autocorrelation": p_value < 0.05
+    }
 
 # -----------------------------
 # 4. 분해
 # -----------------------------
 def decompose_series(series, period):
-    return seasonal_decompose(series, period=period)
+    series = series.dropna()
+
+    if len(series) < period * 2:
+        raise ValueError("데이터 길이가 주기 대비 너무 짧습니다.")
+
+    result = seasonal_decompose(series, model='additive', period=period)
+
+    return result
 
 def plot_decomposition(result):
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True)
-    fig.add_trace(go.Scatter(y=result.observed), row=1, col=1)
-    fig.add_trace(go.Scatter(y=result.trend), row=2, col=1)
-    fig.add_trace(go.Scatter(y=result.seasonal), row=3, col=1)
-    fig.add_trace(go.Scatter(y=result.resid), row=4, col=1)
-    fig.update_layout(height=800)
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        subplot_titles=("원본", "추세", "계절성", "잔차")
+    )
+
+    fig.add_trace(go.Scatter(y=result.observed, name="Observed"), row=1, col=1)
+    fig.add_trace(go.Scatter(y=result.trend, name="Trend"), row=2, col=1)
+    fig.add_trace(go.Scatter(y=result.seasonal, name="Seasonal"), row=3, col=1)
+    fig.add_trace(go.Scatter(y=result.resid, name="Residual"), row=4, col=1)
+
+    fig.update_layout(height=800, showlegend=False)
     return fig
 
+def summarize_decomposition(result):
+    trend_strength = result.trend.std() / result.observed.std()
+    seasonal_strength = result.seasonal.std() / result.observed.std()
+
+    return {
+        "trend_strength": round(trend_strength, 2),
+        "seasonal_strength": round(seasonal_strength, 2)
+    }
+
+#시간 간격 계산
+def infer_frequency(index):
+    """DatetimeIndex 기준 데이터 간격 추정"""
+    
+    if not isinstance(index, pd.DatetimeIndex):
+        raise ValueError("DatetimeIndex가 필요합니다.")
+
+    if len(index) < 3:
+        raise ValueError("데이터가 너무 적어 주기를 추정할 수 없습니다.")
+
+    # 간격 계산
+    diffs = index.to_series().diff().dropna()
+    most_common_diff = diffs.mode()[0]
+
+    return most_common_diff
+
+def get_time_span(index):
+    """전체 기간 계산"""
+    
+    start = index.min()
+    end = index.max()
+    duration = end - start
+
+    return {
+        "start": start,
+        "end": end,
+        "duration": duration
+    }
+
+def suggest_periods(freq):
+    """데이터 간격 기반 계절성 주기 후보 제안"""
+
+    # pandas Timedelta 기준
+    if freq <= pd.Timedelta("1H"):
+        return [24, 168]  # 하루, 일주일
+
+    elif freq <= pd.Timedelta("1D"):
+        return [7, 30]  # 주간, 월간
+
+    elif freq <= pd.Timedelta("7D"):
+        return [4, 12]  # 월간, 연간
+
+    elif freq <= pd.Timedelta("31D"):
+        return [12]  # 연간
+
+    else:
+        return [1]
+
+def analyze_time_index(index):
+    freq = infer_frequency(index)
+    span = get_time_span(index)
+    periods = suggest_periods(freq)
+
+    return {
+        "frequency": freq,
+        "start": span["start"],
+        "end": span["end"],
+        "duration": span["duration"],
+        "suggested_periods": periods
+    }
+    
 # -----------------------------
 # 5. 예측
 # -----------------------------
-def get_forecast(train, horizon):
-    last = train.iloc[-1]
-    mean = np.repeat(last, horizon)
+def ma_forecast(train, horizon, window):
+    val = train.rolling(window=window, min_periods=1).mean().iloc[-1]
+    mean = np.repeat(val, horizon)
+    std = train.std()
+
+    return mean, mean - std, mean + std
+
+
+def exp_forecast(train, horizon):
+    model = ExponentialSmoothing(train).fit()
+    forecast = model.forecast(horizon)
+
+    std = train.std()
+    return forecast.values, forecast.values - std, forecast.values + std
+
+
+def hw_forecast(train, horizon, period):
+    model = ExponentialSmoothing(
+        train,
+        trend="add",
+        seasonal="add",
+        seasonal_periods=period
+    ).fit()
+
+    forecast = model.forecast(horizon)
+    std = train.std()
+
+    return forecast.values, forecast.values - std, forecast.values + std
+
+from statsmodels.tsa.forecasting.stl import STLForecast
+from statsmodels.tsa.arima.model import ARIMA
+
+def stl_forecast(train, horizon, period):
+    model = STLForecast(
+        train,
+        ARIMA,
+        model_kwargs={"order": (1,1,1)},
+        period=period
+    )
+    res = model.fit()
+
+    forecast = res.forecast(horizon)
+
+    resid_std = np.std(res.resid)
+    upper = forecast + 1.96 * resid_std
+    lower = forecast - 1.96 * resid_std
+
+    return forecast.values, lower.values, upper.values
+
+from pmdarima import auto_arima
+
+def arima_forecast(train, horizon, period, seasonal):
+    model = auto_arima(
+        train,
+        seasonal=seasonal,
+        m=period if seasonal else 1,
+        max_p=2, max_q=2, max_d=1,
+        max_P=1, max_Q=1, max_D=1,
+        stepwise=True,
+        suppress_warnings=True,
+        error_action="ignore"
+    )
+
+    forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
+
+    return forecast, conf_int[:,0], conf_int[:,1]
+
+
+def get_forecast(train, horizon, model_type, period=12):
+    train = pd.Series(train).astype(float).dropna()
+
+    # 추세
+    x = np.arange(len(train))
+    slope, _ = np.polyfit(x, train.values, 1)
+
+    try:
+        if model_type == "MA":
+            mean, lower, upper = ma_forecast(train, horizon, period)
+
+        elif model_type == "ES":
+            mean, lower, upper = exp_forecast(train, horizon)
+
+        elif model_type == "HW":
+            mean, lower, upper = hw_forecast(train, horizon, period)
+
+        elif model_type == "STL":   # ⭐ 추가
+            mean, lower, upper = stl_forecast(train, horizon, period)
+
+        elif model_type == "ARIMA":
+            mean, lower, upper = arima_forecast(train, horizon, period, False)
+
+        elif model_type == "SARIMA":
+            mean, lower, upper = arima_forecast(train, horizon, period, True)
+
+        else:
+            raise ValueError("지원하지 않는 모델")
+
+    except Exception as e:
+        # fallback (단순하지만 명확)
+        last = train.iloc[-1]
+        mean = np.repeat(last, horizon)
+        lower = mean * 0.9
+        upper = mean * 1.1
 
     return {
         "mean": mean,
-        "lower": mean * 0.9,
-        "upper": mean * 1.1
+        "lower": lower,
+        "upper": upper,
+        "trend_slope": slope
     }
 
-def plot_forecast_result(train, result):
+#rolling
+def rolling_forecast_fast(train, test, model_type):
+    history = list(train)
+    preds = []
+
+    if model_type in ["ARIMA", "SARIMA"]:
+        # 최초 1회만 학습
+        if model_type == "ARIMA":
+            model = ARIMA(history, order=(1,1,1)).fit()
+        else:
+            model = SARIMAX(history, order=(1,1,1), seasonal_order=(1,1,1,12)).fit(disp=False)
+
+        for t in range(len(test)):
+            # 예측
+            yhat = model.forecast(steps=1)[0]
+            preds.append(yhat)
+
+            # 업데이트 (재학습 X)
+            model = model.append([test.iloc[t]], refit=False)
+
+    else:
+        # 비모수 모델만 rolling 유지
+        for t in range(len(test)):
+            current = history
+            yhat = get_forecast(current, 1, model_type)["mean"][0]
+
+            preds.append(yhat)
+            history.append(test.iloc[t])
+
+    return np.array(preds)
+
+#block forecasting
+def block_forecast(train, test, model_type, horizon=12):
+    preds = []
+
+    for i in range(0, len(test), horizon):
+        hist = pd.concat([train, test[:i]])
+
+        result = get_forecast(hist, horizon, model_type)
+
+        preds.extend(result["mean"][:min(horizon, len(test)-i)])
+
+    return np.array(preds)
+
+def evaluate_forecast(train, test, model_type, horizon):
+    preds = []
+
+    for i in range(0, len(test), horizon):
+        hist = pd.concat([train, test[:i]])
+
+        result = get_forecast(hist, horizon, model_type)
+        step_preds = result["mean"]
+
+        preds.extend(step_preds[:min(horizon, len(test)-i)])
+
+    return np.array(preds)
+
+#성능평가지표
+def mae(y, yhat):
+    return np.mean(np.abs(np.array(y) - np.array(yhat)))
+
+
+def rmse(y, yhat):
+    return np.sqrt(np.mean((np.array(y) - np.array(yhat))**2))
+
+
+def mape(y, yhat):
+    y, yhat = np.array(y), np.array(yhat)
+    return np.mean(np.abs((y - yhat) / (y + 1e-8))) * 100
+
+
+def tracking_signal(y, yhat):
+    err = np.array(y) - np.array(yhat)
+    mad = np.mean(np.abs(err))
+    return np.sum(err) / (mad + 1e-8)
+
+def evaluate_metrics(y_true, y_pred, model_name, method):
+    return {
+        "모델": model_name,
+        "평가방법": method,
+        "MAE": mae(y_true, y_pred),
+        "RMSE": rmse(y_true, y_pred),
+        "MAPE": mape(y_true, y_pred),
+        "TS": tracking_signal(y_true, y_pred)
+    }
+
+def update_log(log_df, new_result):
+    return pd.concat([log_df, pd.DataFrame([new_result])], ignore_index=True)
+
+def plot_forecast_vs_actual(y_true, preds_dict):
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(y=train, name="Actual"))
+    fig.add_trace(go.Scatter(
+        y=y_true,
+        name="Actual",
+        line=dict(dash="dot")
+    ))
 
-    future = result["mean"]
-    full = np.concatenate([train.values, future])
-
-    fig.add_trace(go.Scatter(y=full, name="Forecast"))
+    for name, pred in preds_dict.items():
+        fig.add_trace(go.Scatter(
+            y=pred,
+            name=name
+        ))
 
     return fig
 
+#demand forecasting
+def plot_forecast_result(train, forecast_result, index):
+    mean = forecast_result["mean"]
+    lower = forecast_result["lower"]
+    upper = forecast_result["upper"]
+
+    fig = go.Figure()
+
+    # 과거 데이터
+    fig.add_trace(go.Scatter(
+        y=train,
+        name="실제값",
+        line=dict(color="blue")
+    ))
+
+    # 예측
+    future_index = pd.date_range(start=index[-1], periods=len(mean)+1, freq=index.freq)[1:]
+
+    fig.add_trace(go.Scatter(
+        x=future_index,
+        y=mean,
+        name="예측값",
+        line=dict(color="red")
+    ))
+
+    # 신뢰구간 (밴드)
+    fig.add_trace(go.Scatter(
+        x=future_index,
+        y=upper,
+        line=dict(width=0),
+        showlegend=False
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=future_index,
+        y=lower,
+        fill='tonexty',
+        fillcolor='rgba(255,0,0,0.15)',
+        line=dict(width=0),
+        name="신뢰구간"
+    ))
+
+    return fig
+
+def summarize_forecast(forecast_result):
+    mean = forecast_result["mean"]
+    lower = forecast_result["lower"]
+    upper = forecast_result["upper"]
+
+    return {
+        "avg": np.mean(mean),
+        "min": np.min(mean),
+        "max": np.max(mean),
+        "ci_low": np.min(lower),
+        "ci_high": np.max(upper)
+    }
+
+def forecast_table(forecast_result, future_index):
+    df = pd.DataFrame({
+        "날짜": future_index,
+        "예측값": forecast_result["mean"],
+        "하한(95%)": forecast_result["lower"],
+        "상한(95%)": forecast_result["upper"]
+    })
+    return df
+
+def aggregate_forecast(forecast_result, freq="D"):
+    df = pd.DataFrame({
+        "y": forecast_result["mean"]
+    })
+
+    if freq == "W":
+        return df["y"].sum()
+    elif freq == "M":
+        return df["y"].sum()
+    else:
+        return df["y"].mean()
+
+#########################################################################################
+
 # -----------------------------
-# UI 상태 전환
+# 0. 세션 상태 초기화 (누적 기록 포함)
 # -----------------------------
-def go_detail(name):
-    st.session_state.view = "detail"
-    st.session_state.selected = name
+if "df" not in st.session_state: st.session_state["df"] = None
+if "processed" not in st.session_state: st.session_state["processed"] = None
+if "perf_log" not in st.session_state: st.session_state["perf_log"] = pd.DataFrame()
+if "forecast_res" not in st.session_state: st.session_state["forecast_res"] = None
 
-def go_home():
-    st.session_state.view = "dashboard"
-    st.session_state.selected = None
-
+st.set_page_config(layout="wide", page_title="수요 예측 앱")
 
 # -----------------------------
-# dashboard
+# 1. 데이터 업로드 및 기본 설정
 # -----------------------------
+st.title("📊 시계열 분석 및 수요 예측")
+st.subheader("C321032 박하율")
+st.divider()
 
-def render_dashboard():
-    st.title("📊 단변량 수요 예측 시스템")
-    
-    # 1단계: 데이터 업로드 (단변량 데이터 전제)
-    if st.session_state["df"] is None:
-        with st.container(border=True):
-            st.subheader("📂 데이터 업로드")
-            file = st.file_uploader("분석할 CSV 파일을 업로드하세요 (단변량 데이터 전용)", key="main_loader")
-            if file:
-                df = load_data(file)
-                st.session_state["df"] = df
-                # 업로드 즉시 첫 번째 수치형 컬럼을 자동으로 타겟 설정
-                # 단변량 데이터이므로 첫 번째 수치 컬럼을 바로 사용함
-                numeric_cols = df.select_dtypes(include=[np.number]).columns
-                if len(numeric_cols) > 0:
-                    st.session_state["target_col"] = numeric_cols[0]
-                    # 자동으로 전처리 실행 로직 연결
-                    st.session_state["processed"] = preprocess_series(df[numeric_cols[0]])
-                st.rerun()
-        return
+col1, col2 = st.columns([1, 2])
 
-    df = st.session_state["df"]
-    target = st.session_state["target_col"]
-    
-    # ---------------------------------------------------------
-    # [1단] 데이터 정보 및 전처리 결과 비교 (상단 2열 배치로 크기 확대)
-    # ---------------------------------------------------------
-    col1, col2 = st.columns([1, 2]) # 가로 비중을 키워 차트 시인성 확보 [cite: 36]
+with col1:
+    with st.container(border=True, height=400):
+        st.subheader("1️⃣ 데이터 업로드")
+        file = st.file_uploader("CSV 파일을 업로드하세요", type=["csv"])
+        if file:
+            df = load_data(file)
+            # 날짜 컬럼 자동 인식 및 인덱스 설정
+            df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0])
+            df = df.set_index(df.columns[0])
+            st.session_state["df"] = df
+            st.success("데이터 로드 완료!")
+            st.dataframe(df.head(), use_container_width=True)
 
-    with col1:
-        with st.container(border=True, height=500): # 컨테이너 높이 확대 [cite: 32]
-            st.subheader("📋 데이터 요약 정보")
-            st.write(f"**대상 컬럼:** `{target}`")
-            st.write(df[target].describe())
+with col2:
+    if st.session_state["df"] is not None:
+        with st.container(border=True, height=400):
+            st.subheader("2️⃣ 시계열 전처리")
+            # 단변량 기준: 첫 번째 수치 컬럼 자동 선택
+            target_series = st.session_state["df"].iloc[:, 0]
             
-            st.divider()
-            if st.button("🔄 전처리 재실행", use_container_width=True):
-                st.session_state["processed"] = preprocess_series(df[target])
-                st.toast("전처리가 완료되었습니다!")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.info("결측치: 선형 보간\n\n이상치: Hampel Filter\n\n노이즈: Savitzky-Golay")
+            with c2:
+                if st.button("🚀 분석 시작 (전처리 실행)", use_container_width=True):
+                    st.session_state["processed"] = preprocess_series(target_series)
+                    st.toast("전처리 및 분석이 완료되었습니다!")
+
+# -----------------------------
+# 3~6. 분석 리포트 영역 (전처리 완료 시 노출)
+# -----------------------------
+if st.session_state["processed"] is not None:
+    ps = st.session_state["processed"]
+    raw = st.session_state["df"].iloc[:, 0]
+    
+    # 3. 전처리 비교 시각화
+    st.subheader("3️⃣ 전처리 결과")
+    st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
+
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+    
+    with row2_col1:
+        with st.container(border=True):
+            st.subheader("4️⃣ 정상성 검정")
+            adf = run_stationarity_test(ps)
+            lb = run_ljungbox_test(ps)
+            st.metric("ADF p-value", f"{adf['p_value']:.4f}", 
+                      delta="정상" if adf['is_stationary'] else "비정상")
+            st.metric("Ljung-Box p-value", f"{lb['p_value']:.4f}",
+                      delta="백색잡음" if not lb['has_autocorrelation'] else "자기상관 존재")
+
+    with row2_col2:
+        with st.container(border=True):
+            st.subheader("6️⃣ 시간 구간 및 빈도")
+            time_info = analyze_time_index(ps.index)
+            st.write(f"**시작:** {time_info['start']}")
+            st.write(f"**종료:** {time_info['end']}")
+            st.write(f"**빈도:** {time_info['frequency']}")
+            selected_period = st.selectbox("분석 주기 선택", time_info['suggested_periods'])
+
+    with row2_col3:
+        with st.container(border=True):
+            st.subheader("〽️시계열 분해 요약")
+            decomp_res = decompose_series(ps, selected_period)
+            summary = summarize_decomposition(decomp_res)
+            st.write(f"추세 강도: **{summary['trend_strength']}**")
+            st.write(f"계절성 강도: **{summary['seasonal_strength']}**")
+
+    # 5. 시계열 분해 차트
+    st.subheader("5️⃣ 시계열 분해 결과")
+    st.plotly_chart(plot_decomposition(decomp_res), use_container_width=True)
+
+    st.divider()
+
+    # -----------------------------
+    # 7~8. 모델 선택 및 성능 평가
+    # -----------------------------
+    st.subheader("7️⃣ 모델 선택 및 성능 평가")
+    m_col1, m_col2 = st.columns([1, 2])
+    
+    with m_col1:
+        with st.container(border=True):
+            model_type = st.selectbox("예측 모델 선택", ["ARIMA", "SARIMA", "STL", "HW", "ES", "MA"])
+            horizon = st.number_input("예측 기간(Horizon)", min_value=1, value=12)
+            
+            if st.button("📈 모델 학습 및 평가", use_container_width=True):
+                # 성능 평가용 Split (8:2)
+                split_idx = int(len(ps) * 0.8)
+                train_part, test_part = ps.iloc[:split_idx], ps.iloc[split_idx:]
+                
+                # 검증용 예측
+                y_pred = evaluate_forecast(train_part, test_part, model_type, horizon)
+                metrics = evaluate_metrics(test_part[:len(y_pred)], y_pred, model_type, "Block Cross-Val")
+                
+                # 누적 로그 업데이트
+                st.session_state["perf_log"] = update_log(st.session_state["perf_log"], metrics)
+                
+                # 실전 예측 수행
+                st.session_state["forecast_res"] = get_forecast(ps, horizon, model_type, selected_period)
+
+    with m_col2:
+        st.write("📋 모델 성능 기록")
+        if not st.session_state["perf_log"].empty:
+            st.dataframe(st.session_state["perf_log"], use_container_width=True)
+            if st.button("🗑️ 기록 초기화"):
+                st.session_state["perf_log"] = pd.DataFrame()
                 st.rerun()
 
-    with col2:
-        with st.container(border=True, height=500):
-            st.subheader("📈 전처리 전/후 시계열 비교")
-            if st.session_state["processed"] is not None:
-                # 기존 plot_preprocessing 함수 적용 
-                fig = plot_preprocessing(df[target], st.session_state["processed"])
-                st.plotly_chart(fig, use_container_width=True)
-
-    # ---------------------------------------------------------
-    # [2단] 기술적 분석 (정상성 및 분해)
-    # ---------------------------------------------------------
-    if st.session_state["processed"] is not None:
+    # -----------------------------
+    # 9. 최종 예측 결과 리포트
+    # -----------------------------
+    if st.session_state["forecast_res"] is not None:
         st.divider()
-        col3, col4 = st.columns([1, 2])
-
-        with col3:
-            with st.container(border=True, height=600):
-                st.subheader("🔍 통계적 진단")
-                # 실제 함수 적용 및 결과 표시 
-                adf_res = run_stationarity_test(st.session_state["processed"])
-                lb_res = run_ljungbox_test(st.session_state["processed"])
-                
-                st.metric("ADF (정상성) p-value", f"{adf_res['p_value']:.4f}")
-                st.metric("Ljung-Box (백색잡음) p-value", f"{lb_res['p_value']:.4f}")
-                
-                st.info("p-value < 0.05 이면 통계적 유의성이 있음")
-
-        with col4:
-            with st.container(border=True, height=600):
-                st.subheader("🧩 시계열 구성 요소 분해")
-                # 기존 decompose_series 함수 적용 
-                dec_res = decompose_series(st.session_state["processed"], 7)
-                st.plotly_chart(plot_decomposition(dec_res), use_container_width=True)
-
-        # ---------------------------------------------------------
-        # [3단] 최종 예측 (하단 전체 너비 활용)
-        # ---------------------------------------------------------
-        st.divider()
-        with st.container(border=True):
-            st.subheader("🔮 향후 수요 예측 결과")
-            f_col1, f_col2 = st.columns([1, 3])
-            
-            with f_col1:
-                horizon = st.number_input("예측 기간 (일/시 단위)", min_value=1, max_value=365, value=14)
-                if st.button("🎯 예측 실행", use_container_width=True):
-                    # 기존 get_forecast 함수 적용 
-                    st.session_state["forecast"] = get_forecast(st.session_state["processed"], horizon)
-                    st.rerun()
-                
-                if st.session_state["forecast"] is not None:
-                    f_mean = st.session_state["forecast"]["mean"]
-                    st.metric("평균 예상 수요", f"{f_mean.mean():.2f}")
-
-            with f_col2:
-                if st.session_state["forecast"] is not None:
-                    # 기존 plot_forecast_result 함수 적용 
-                    fig_final = plot_forecast_result(st.session_state["processed"], st.session_state["forecast"])
-                    st.plotly_chart(fig_final, use_container_width=True)
+        st.subheader("9️⃣ 최종 수요 예측 결과 리포트")
+        
+        f_res = st.session_state["forecast_res"]
+        stats = summarize_forecast(f_res)
+        
+        # 예측 요약 지표
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("평균 예측치", f"{stats['avg']:,.2f}")
+        m2.metric("최대 예측치", f"{stats['max']:,.2f}")
+        m3.metric("최소 예측치", f"{stats['min']:,.2f}")
+        m4.metric("추세 기울기", f"{f_res['trend_slope']:.4f}")
+        
+        # 메인 예측 차트
+        st.plotly_chart(plot_forecast_result(ps, f_res, ps.index), use_container_width=True)
+        
+        # 예측치 상세 테이블
+        with st.expander("📅 기간 단위 당 상세 예측치 확인"):
+            future_idx = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=ps.index.freq)[1:]
+            table = forecast_table(f_res, future_idx)
+            st.dataframe(table, use_container_width=True)
