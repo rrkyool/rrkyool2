@@ -347,7 +347,7 @@ if st.session_state["processed"] is not None:
             else:
                 st.info("✅ **패턴 존재. 모형 개선 가능**")
 
-             if has_ac:
+            if has_ac:
                 st.info("✅ **자기상관 존재. 모형 개선 가능**")
             else:
                 st.warning("⚠️ **자기상관 없음. 주기적인 패턴 없음**")
