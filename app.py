@@ -397,7 +397,7 @@ if st.session_state["processed"] is not None:
                 orientation="h", 
                 yanchor="bottom", 
                 y=1.08,   # 그래프 및 서브플롯 제목 위로 더 올림
-                xanchor="right", 
+                xanchor="left", 
                 x=1
             )
         )
@@ -485,7 +485,7 @@ if st.session_state["processed"] is not None:
         
         with e_col1:
             with st.container(border=True):
-                st.markdown("#### 📏 성능 평가 결과 및 Best 모델 요약")
+                st.markdown("#### 성능 평가 결과")
                 
                 if not st.session_state["perf_log"].empty:
                     # 1. 전체 로그 데이터 표시
