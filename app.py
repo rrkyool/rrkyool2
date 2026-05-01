@@ -313,17 +313,12 @@ if st.session_state["processed"] is not None:
             c1.metric("ADF p-value", f"{adf['p_value']:.4f}", "정상" if adf['is_stationary'] else "비정상")
             c2.metric("Ljung-Box p-value", f"{lb['p_value']:.4f}", "패턴 없음" if lb['p_value'] > 0.05 else "자기상관")
             time_info = analyze_time_index(ps.index)
-            st.divider()
-            
+           
             # ADF 검정 결과에 따른 차분 가이드
             if adf['is_stationary']:
-                st.markdown("#### ✨ **정상성 분석 결과**")
                 st.success("✅ **정상성 만족**")
             else:
-                st.markdown("#### ✨ **정상성 분석 결과**")
                 st.error("⚠️ **데이터에 추세나 계절성이 강해 모델의 예측력이 떨어질 수 있음. 차분 권장**")
-            
-            st.divider()
 
             # Ljung-Box 검정 결과에 따른 모델링 적합성 가이드
             if lb['p_value'] > 0.05:
@@ -331,7 +326,8 @@ if st.session_state["processed"] is not None:
             else:
                 st.info("✅ **자기상관(Autocorrelation) 존재. 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지**")
                 st.markdown("- 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지되었습니다. 시계열 모델(ARIMA, SARIMA 등)을 통해 **충분히 예측 가능한 데이터**입니다.")
-            
+
+            st.devider()
             st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
             freq = time_info['frequency']
 
@@ -380,7 +376,7 @@ if st.session_state["processed"] is not None:
         fig_d = make_subplots(
             rows=1, cols=2, 
             shared_xaxes=True, 
-            vertical_spacing=0.15, 
+            vertical_spacing=0.10, 
             subplot_titles=("📈 Observed & Trend (원본 및 추세)", "🍂 Seasonal & Residual (계절성 및 잔차)")
         )
         
