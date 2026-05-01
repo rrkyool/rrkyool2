@@ -289,7 +289,7 @@ with st.sidebar:
                 )[1:]
                 st.session_state["current_y_pred"] = y_pred
 
-            if st.button("🗑️ 로그 초기화", use_container_width=True):
+            if st.button("로그 초기화", use_container_width=True):
                 st.session_state["perf_log"], st.session_state["eval_preds"], st.session_state["forecast_res"] = pd.DataFrame(), {}, None
                 st.rerun()
 
