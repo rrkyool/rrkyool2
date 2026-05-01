@@ -396,8 +396,8 @@ if st.session_state["processed"] is not None:
             legend=dict(
                 orientation="h", 
                 yanchor="bottom", 
-                y=1.08,   # 그래프 및 서브플롯 제목 위로 더 올림
-                xanchor="left", 
+                y=1.1,   # 그래프 및 서브플롯 제목 위로 더 올림
+                xanchor="right", 
                 x=1
             )
         )
