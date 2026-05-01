@@ -370,8 +370,8 @@ if st.session_state["processed"] is not None:
             st.markdown("""
             <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
                 <small>💡 <b>지표 해석 가이드</b></small><br>
-                <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 상승/하락 경향이 뚜렷함을 의미합니다.</small><br>
-                <small>• <b>계절성 강도</b>: 1에 가까울수록 특정 주기(일/주/월 등)마다 반복되는 패턴이 강함을 의미합니다.</small>
+                <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 상승/하락 경향이 뚜렷함을 의미</small><br>
+                <small>• <b>계절성 강도</b>: 1에 가까울수록 특정 주기(일/주/월 등)마다 반복되는 패턴이 강함을 의미</small>
             </div>
             """, unsafe_allow_html=True)
         st.divider() # 지표와 차트 사이 시각적 구분선
@@ -428,7 +428,7 @@ if st.session_state["processed"] is not None:
                 fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", line=dict(color="#ef553b", width=4), mode='lines+markers'))
                 
                 # 신뢰구간 투명 밴드 적용 [cite: 231]
-                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False, hoverinfo='skip'))
+                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), fill='tonexty', fillcolor='rgba(239, 85, 59, 0.15)', hoverinfo='skip'))
                 fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', fillcolor='rgba(239, 85, 59, 0.15)', line=dict(width=0), name="95% 신뢰구간"))
                 
                 fig_f.update_layout(height=500, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
