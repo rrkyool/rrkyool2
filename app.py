@@ -422,16 +422,43 @@ if st.session_state["processed"] is not None:
                 fig_f = go.Figure()
                 split_idx = int(len(ps) * 0.8)
                 
-                # 학습/검증/예측 데이터 분할 시각화 [cite: 230, 238]
+                # 1. 학습/검증 데이터 시각화
                 fig_f.add_trace(go.Scatter(x=ps.index[:split_idx], y=ps.iloc[:split_idx], name="학습 데이터(Train)", line=dict(color="#1f77b4")))
                 fig_f.add_trace(go.Scatter(x=ps.index[split_idx-1:], y=ps.iloc[split_idx-1:], name="검증 데이터(Test)", line=dict(color="#ff7f0e", dash="dot")))
-                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", line=dict(color="#ef553b", width=4), mode='lines+markers'))
                 
-                # 신뢰구간 투명 밴드 적용 [cite: 231]
-                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), fill='tonexty', fillcolor='rgba(239, 85, 59, 0.15)', hoverinfo='skip'))
-                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', fillcolor='rgba(239, 85, 59, 0.15)', line=dict(width=0), name="95% 신뢰구간"))
+                # 2. 신뢰구간 밴드 (먼저 그려야 미래 예측치 선이 밴드 위로 올라옵니다)
+                # Upper Bound: 선은 숨기고 데이터만 정의
+                fig_f.add_trace(go.Scatter(
+                    x=future_dates, y=f_res['upper'], 
+                    line=dict(width=0), 
+                    showlegend=False, 
+                    hoverinfo='skip'
+                ))
                 
-                fig_f.update_layout(height=500, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                # Lower Bound: Upper와의 사이를 분홍색 투명 밴드로 채움
+                fig_f.add_trace(go.Scatter(
+                    x=future_dates, y=f_res['lower'], 
+                    fill='tonexty', 
+                    fillcolor='rgba(255, 105, 180, 0.2)', # HotPink 색상 + 투명도 0.2
+                    line=dict(width=0), 
+                    name="95% 신뢰구간"
+                ))
+                
+                # 3. 미래 예측치 (밴드 위에 선명하게 표시하기 위해 마지막에 배치)
+                fig_f.add_trace(go.Scatter(
+                    x=future_dates, y=f_res['mean'], 
+                    name="미래 예측치", 
+                    line=dict(color="#ef553b", width=3), 
+                    mode='lines+markers'
+                ))
+                
+                # 레이아웃 설정
+                fig_f.update_layout(
+                    height=500, 
+                    margin=dict(l=10, r=10, t=30, b=10), 
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                
                 st.plotly_chart(fig_f, use_container_width=True, key="main_forecast_plot")
     
         with r_col2:
@@ -460,22 +487,50 @@ if st.session_state["processed"] is not None:
     
         with e_col2:
             st.write("🔍 모델 검증 (Actual vs Prediction)")
-            # eval_preds가 존재할 때만 시각화 실행 [cite: 173, 245]
+
+            # eval_preds가 존재할 때만 시각화 실행
             eval_data = st.session_state.get("eval_preds")
             
             if eval_data:
+                # 1. 테스트 데이터 전체 범위 설정
                 split_idx = int(len(ps) * 0.8)
                 test_p = ps.iloc[split_idx:]
                 
                 fig_v = go.Figure()
-                fig_v.add_trace(go.Scatter(x=test_p.index, y=test_p.values, name="Actual (실제값)", line=dict(color="green", dash='dot', width=2)))
+            
+                # 2. 실제값 (테스트 데이터 전체 구간)
+                fig_v.add_trace(go.Scatter(
+                    x=test_p.index, 
+                    y=test_p.values, 
+                    name="Actual (실제값)", 
+                    line=dict(color="green", dash='dot', width=2)
+                ))
                 
+                # 3. 모델별 예측값 시각화
                 for label, p_val in eval_data.items():
-                    # 데이터 길이 불일치 방지 [cite: 137]
-                    fig_v.add_trace(go.Scatter(x=test_p.index[:len(p_val)], y=p_val, name=f"Pred({label})"))
+                    # Rolling Forecast 결과(p_val)가 test_p와 길이가 같다고 가정
+                    # 만약 길이가 다르더라도 인덱스를 매칭하여 전체 범위에 표시
+                    fig_v.add_trace(go.Scatter(
+                        x=test_p.index[-len(p_val):], # 예측 데이터의 길이에 맞춰 최신 구간부터 매칭
+                        y=p_val, 
+                        name=f"Pred({label})",
+                        line=dict(width=2)
+                    ))
                 
-                fig_v.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                # 4. 레이아웃 설정
+                fig_v.update_layout(
+                    height=400, 
+                    margin=dict(l=10, r=10, t=10, b=10), 
+                    legend=dict(
+                        orientation="h", 
+                        yanchor="bottom", 
+                        y=1.02, 
+                        xanchor="right", 
+                        x=1
+                    ),
+                    hovermode="x unified" # 마우스 커서 위치의 모든 데이터 동시 확인
+                )
+                
                 st.plotly_chart(fig_v, use_container_width=True, key="validation_plot")
             else:
-                # 데이터가 없을 경우 사용자 가이드 제공 [cite: 238]
-                st.info("💡 사이드바에서 '🚀 수요 예측 실행' 버튼을 클릭하면 검증 차트가 생성됩니다.")
+                st.info("💡 예측 실행 후 검증 결과가 표시됩니다.")
