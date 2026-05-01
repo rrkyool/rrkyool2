@@ -429,8 +429,8 @@ if st.session_state["processed"] is not None:
                 fig_f.add_trace(go.Scatter(x=ps.index[split_idx-1:], y=ps.iloc[split_idx-1:], name="검증 데이터(Test)", line=dict(color="#ff7f0e", dash="dot")))
                 
                 # --- 신뢰구간 스타일 정의 ---
-                pink_line = 'rgba(255, 182, 193, 0.3)'  # 상/하한선 경계 (연한 분홍)
-                pink_fill = 'rgba(255, 182, 193, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
+                pink_line = 'rgba(255, 128, 128, 0.3)'  # 상/하한선 경계 (연한 분홍)
+                pink_fill = 'rgba(255, 128, 128, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
                 
                 # 2. 신뢰구간 상한선 (Upper Bound)
                 fig_f.add_trace(go.Scatter(
@@ -484,59 +484,61 @@ if st.session_state["processed"] is not None:
         e_col1, e_col2 = st.columns([1, 1.2])
         
         with e_col1:
-            st.markdown("###📊 성능 평가 로그")
-            if not st.session_state["perf_log"].empty:
-                # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
-                st.dataframe(st.session_state["perf_log"], use_container_width=True)
-            else:
-                st.warning("기록된 로그가 없습니다.")
+            with st.container(border = True):
+                st.markdown("📊 성능 평가 로그")
+                if not st.session_state["perf_log"].empty:
+                    # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
+                    st.dataframe(st.session_state["perf_log"], use_container_width=True)
+                else:
+                    st.warning("기록된 로그가 없습니다.")
     
         with e_col2:
-            st.markdown("###🔍 모델 검증 (Actual vs Prediction)")
-
-            # eval_preds가 존재할 때만 시각화 실행
-            eval_data = st.session_state.get("eval_preds")
-            
-            if eval_data:
-                # 1. 테스트 데이터 전체 범위 설정
-                split_idx = int(len(ps) * 0.8)
-                test_p = ps.iloc[split_idx:]
+            with st.container(border=True):
+                st.markdown("🔍 모델 검증 (Actual vs Prediction)")
+    
+                # eval_preds가 존재할 때만 시각화 실행
+                eval_data = st.session_state.get("eval_preds")
                 
-                fig_v = go.Figure()
-            
-                # 2. 실제값 (테스트 데이터 전체 구간)
-                fig_v.add_trace(go.Scatter(
-                    x=test_p.index, 
-                    y=test_p.values, 
-                    name="Actual (실제값)", 
-                    line=dict(color="green", dash='dot', width=2)
-                ))
+                if eval_data:
+                    # 1. 테스트 데이터 전체 범위 설정
+                    split_idx = int(len(ps) * 0.8)
+                    test_p = ps.iloc[split_idx:]
+                    
+                    fig_v = go.Figure()
                 
-                # 3. 모델별 예측값 시각화
-                for label, p_val in eval_data.items():
-                    # Rolling Forecast 결과(p_val)가 test_p와 길이가 같다고 가정
-                    # 만약 길이가 다르더라도 인덱스를 매칭하여 전체 범위에 표시
+                    # 2. 실제값 (테스트 데이터 전체 구간)
                     fig_v.add_trace(go.Scatter(
-                        x=test_p.index[-len(p_val):], # 예측 데이터의 길이에 맞춰 최신 구간부터 매칭
-                        y=p_val, 
-                        name=f"Pred({label})",
-                        line=dict(width=2)
+                        x=test_p.index, 
+                        y=test_p.values, 
+                        name="Actual (실제값)", 
+                        line=dict(color="green", dash='dot', width=2)
                     ))
-                
-                # 4. 레이아웃 설정
-                fig_v.update_layout(
-                    height=400, 
-                    margin=dict(l=10, r=10, t=10, b=10), 
-                    legend=dict(
-                        orientation="h", 
-                        yanchor="bottom", 
-                        y=1.02, 
-                        xanchor="right", 
-                        x=1
-                    ),
-                    hovermode="x unified" # 마우스 커서 위치의 모든 데이터 동시 확인
-                )
-                
-                st.plotly_chart(fig_v, use_container_width=True, key="validation_plot")
-            else:
-                st.info("💡 예측 실행 후 검증 결과가 표시됩니다.")
+                    
+                    # 3. 모델별 예측값 시각화
+                    for label, p_val in eval_data.items():
+                        # Rolling Forecast 결과(p_val)가 test_p와 길이가 같다고 가정
+                        # 만약 길이가 다르더라도 인덱스를 매칭하여 전체 범위에 표시
+                        fig_v.add_trace(go.Scatter(
+                            x=test_p.index[-len(p_val):], # 예측 데이터의 길이에 맞춰 최신 구간부터 매칭
+                            y=p_val, 
+                            name=f"Pred({label})",
+                            line=dict(width=2)
+                        ))
+                    
+                    # 4. 레이아웃 설정
+                    fig_v.update_layout(
+                        height=400, 
+                        margin=dict(l=10, r=10, t=10, b=10), 
+                        legend=dict(
+                            orientation="h", 
+                            yanchor="bottom", 
+                            y=1.02, 
+                            xanchor="right", 
+                            x=1
+                        ),
+                        hovermode="x unified" # 마우스 커서 위치의 모든 데이터 동시 확인
+                    )
+                    
+                    st.plotly_chart(fig_v, use_container_width=True, key="validation_plot")
+                else:
+                    st.info("💡 예측 실행 후 검증 결과가 표시됩니다.")
