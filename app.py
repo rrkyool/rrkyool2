@@ -66,7 +66,7 @@ def preprocess_series(series):
 def plot_preprocessing(raw, processed):
     fig = go.Figure()
     fig.add_trace(go.Scatter(y=raw, name="원본", opacity=0.5, line=dict(color="gray")))
-    fig.add_trace(go.Scatter(y=processed, name="전처리", line=dict(color="blue")))
+    fig.add_trace(go.Scatter(y=processed, name="전처리", line=dict(color="darkgreen")))
     
     # 사이즈 및 여백 조정
     fig.update_layout(
@@ -298,6 +298,7 @@ with st.sidebar:
 # -----------------------------
 st.title("📈 시계열 분석 Project1 수요 예측 리포트")
 st.subheader("C321032 박하율")
+st.divider()
 
 if st.session_state["processed"] is not None:
     ps, raw = st.session_state["processed"], st.session_state["df"].iloc[:, 0]
@@ -378,27 +379,31 @@ if st.session_state["processed"] is not None:
             rows=1, cols=2, 
             shared_xaxes=True, 
             vertical_spacing=0.15, 
-            subplot_titles=("📈 Observed & Trend (원본 및 추세)", "🍂 Seasonal & Residual (계절성 및 잔차)")
+            subplot_titles=("📈 Original & Trend", "🍂 Seasonal & Residual")
         )
         
-        # 상단: 원본(회색) + 추세(파란색)
+        # 데이터 트레이스 추가 (기존 로직 유지)
         fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
         fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
-        
-        # 하단: 계절성(초록) + 잔차(주황/마커)
         fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2)
         fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2)
         
-        # 레이아웃 최적화
+        # --- 레이아웃 최적화 (높이 축소 및 범례 위치 조정) ---
         fig_d.update_layout(
-            height=550, 
-            margin=dict(t=40, b=20, l=10, r=10),
+            height=370,  # 기존 550의 약 2/3 크기로 조정
+            margin=dict(t=60, b=20, l=10, r=10), # 상단 여백을 살짝 늘려 범례 공간 확보
             showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            legend=dict(
+                orientation="h", 
+                yanchor="bottom", 
+                y=1.08,   # 그래프 및 서브플롯 제목 위로 더 올림
+                xanchor="right", 
+                x=1
+            )
         )
         
         # 차트를 컨테이너 전체 너비로 출력
-        st.plotly_chart(fig_d, use_container_width=True)
+        st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot")
 
    # [4행] 최종 수요 예측 결과 및 분석 리포트
     if st.session_state.get("forecast_res") is not None:
@@ -424,8 +429,8 @@ if st.session_state["processed"] is not None:
                 fig_f.add_trace(go.Scatter(x=ps.index[split_idx-1:], y=ps.iloc[split_idx-1:], name="검증 데이터(Test)", line=dict(color="#ff7f0e", dash="dot")))
                 
                 # --- 신뢰구간 스타일 정의 ---
-                pink_line = 'rgba(255, 105, 180, 0.3)'  # 상/하한선 경계 (연한 분홍)
-                pink_fill = 'rgba(255, 105, 180, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
+                pink_line = 'rgba(255, 240, 245, 0.3)'  # 상/하한선 경계 (연한 분홍)
+                pink_fill = 'rgba(255, 240, 245, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
                 
                 # 2. 신뢰구간 상한선 (Upper Bound)
                 fig_f.add_trace(go.Scatter(
@@ -479,7 +484,7 @@ if st.session_state["processed"] is not None:
         e_col1, e_col2 = st.columns([1, 1.2])
         
         with e_col1:
-            st.write("📊 성능 평가 로그")
+            st.markdown("📊 성능 평가 로그")
             if not st.session_state["perf_log"].empty:
                 # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
                 st.dataframe(st.session_state["perf_log"], use_container_width=True)
@@ -487,7 +492,7 @@ if st.session_state["processed"] is not None:
                 st.warning("기록된 로그가 없습니다.")
     
         with e_col2:
-            st.write("🔍 모델 검증 (Actual vs Prediction)")
+            st.markdown("🔍 모델 검증 (Actual vs Prediction)")
 
             # eval_preds가 존재할 때만 시각화 실행
             eval_data = st.session_state.get("eval_preds")
