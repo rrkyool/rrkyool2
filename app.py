@@ -296,7 +296,7 @@ with st.sidebar:
 # -----------------------------
 # 리포트 메인 화면
 # -----------------------------
-st.title("📈 시계열 분석 Project1 수요 예측 리포트")
+st.title("📈 시계열 분석 Project1 수요 예측")
 st.subheader("C321032 박하율")
 st.divider()
 
@@ -480,21 +480,47 @@ if st.session_state["processed"] is not None:
     
         # [5행] 성능 평가 및 모델 검증 (오류 수정 핵심 영역)
         st.divider()
-        st.subheader("📏 성능 평가 및 모델 검증")
+        st.subheader("성능 평가 및 모델 검증")
         e_col1, e_col2 = st.columns([1, 1.2])
         
         with e_col1:
-            with st.container(border = True):
-                st.markdown("### 성능 평가 로그")
+            with st.container(border=True):
+                st.markdown("#### 📏 성능 평가 결과 및 Best 모델 요약")
+                
                 if not st.session_state["perf_log"].empty:
-                    # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
-                    st.dataframe(st.session_state["perf_log"], use_container_width=True)
+                    # 1. 전체 로그 데이터 표시
+                    df_log = st.session_state["perf_log"]
+                    st.dataframe(df_log, use_container_width=True)
+                    
+                    # 2. 지표별 Best 모델 산출 로직
+                    # MAE, RMSE, MAPE는 최소값(idxmin)
+                    best_mae_idx = df_log['MAE'].idxmin()
+                    best_rmse_idx = df_log['RMSE'].idxmin()
+                    best_mape_idx = df_log['MAPE'].idxmin()
+                    
+                    # TS는 0에 가장 가까운 값 (절대값이 최소인 것)
+                    best_ts_idx = df_log['TS'].abs().idxmin()
+                    
+                    # 3. 요약 텍스트 출력 (st.info 활용하여 가독성 높임)
+                    # 모델명은 'Model' 또는 '모델명' 컬럼에 있다고 가정합니다.
+                    model_col = 'Model' if 'Model' in df_log.columns else df_log.columns[0]
+                    
+                    best_summary = (
+                        f"🏆 **Best 평가지표** \n"
+                        f"▫️ **MAE:** {df_log.loc[best_mae_idx, model_col]} ({df_log.loc[best_mae_idx, 'MAE']:.2f}) | "
+                        f"▫️ **RMSE:** {df_log.loc[best_rmse_idx, model_col]} ({df_log.loc[best_rmse_idx, 'RMSE']:.2f})  \n"
+                        f"▫️ **MAPE:** {df_log.loc[best_mape_idx, model_col]} ({df_log.loc[best_mape_idx, 'MAPE']:.2f}%) | "
+                        f"▫️ **TS(0 근접):** {df_log.loc[best_ts_idx, model_col]} ({df_log.loc[best_ts_idx, 'TS']:.2f})"
+                    )
+                    
+                    st.info(best_summary)
+                    
                 else:
-                    st.warning("기록된 로그가 없습니다.")
-    
+                    st.warning("기록된 로그가 없습니다. 먼저 예측을 실행해 주세요.")
+                
         with e_col2:
             with st.container(border=True):
-                st.markdown("### 모델 검증 및 비교(Actual vs Prediction)")
+                st.markdown("#### 모델 검증 및 비교(Actual vs Prediction)")
     
                 # eval_preds가 존재할 때만 시각화 실행
                 eval_data = st.session_state.get("eval_preds")
