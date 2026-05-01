@@ -303,11 +303,12 @@ if st.session_state["processed"] is not None:
     ps, raw = st.session_state["processed"], st.session_state["df"].iloc[:, 0]
     col1, col2 = st.columns(2)
     with col1:
+        st.subheader("전처리 결과")
         with st.container(border=True, height=450):
-            st.subheader("전처리 결과"); st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
+            st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
     with col2:
+        st.subheader("정상성 및 통계 진단")
         with st.container(border=True, height=450):
-            st.subheader("정상성 및 통계 진단")
             adf, lb = run_stationarity_test(ps), run_ljungbox_test(ps)
             c1, c2 = st.columns(2)
             c1.metric("ADF p-value", f"{adf['p_value']:.4f}", "정상" if adf['is_stationary'] else "비정상")
@@ -325,8 +326,7 @@ if st.session_state["processed"] is not None:
                 st.warning("⚠️ **백색잡음(White Noise) 주의. 모델 성능이 낮을 수 있음**")
             else:
                 st.info("✅ **자기상관(Autocorrelation) 존재. 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지**")
-                st.markdown("- 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지되었습니다. 시계열 모델(ARIMA, SARIMA 등)을 통해 **충분히 예측 가능한 데이터**입니다.")
-
+                
             st.divider()
             st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
             freq = time_info['frequency']
@@ -349,9 +349,9 @@ if st.session_state["processed"] is not None:
             """)
 
     st.divider()
-    
+
+    st.subheader("시계열 분해 결과(Decomposition)")
     with st.container(border=True):
-        st.subheader("시계열 분해 결과(Decomposition)")
         
         # 1. 데이터 분석 및 주기 설정
         current_period = analyze_time_index(ps.index)['suggested_periods'][0]
@@ -423,29 +423,32 @@ if st.session_state["processed"] is not None:
                 fig_f.add_trace(go.Scatter(x=ps.index[:split_idx], y=ps.iloc[:split_idx], name="학습 데이터(Train)", line=dict(color="#1f77b4")))
                 fig_f.add_trace(go.Scatter(x=ps.index[split_idx-1:], y=ps.iloc[split_idx-1:], name="검증 데이터(Test)", line=dict(color="#ff7f0e", dash="dot")))
                 
-                # 2. 신뢰구간 밴드 (먼저 그려야 미래 예측치 선이 밴드 위로 올라옵니다)
-                # Upper Bound: 선은 숨기고 데이터만 정의
+                # --- 신뢰구간 스타일 정의 ---
+                pink_line = 'rgba(255, 105, 180, 0.3)'  # 상/하한선 경계 (연한 분홍)
+                pink_fill = 'rgba(255, 105, 180, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
+                
+                # 2. 신뢰구간 상한선 (Upper Bound)
                 fig_f.add_trace(go.Scatter(
                     x=future_dates, y=f_res['upper'], 
-                    line=dict(width=0), 
+                    line=dict(color=pink_line, width=1), # 하한선과 동일하게 선 추가
                     showlegend=False, 
                     hoverinfo='skip'
                 ))
                 
-                # Lower Bound: Upper와의 사이를 분홍색 투명 밴드로 채움
+                # 3. 신뢰구간 하한선 및 채우기 (Lower Bound & Fill)
                 fig_f.add_trace(go.Scatter(
                     x=future_dates, y=f_res['lower'], 
+                    line=dict(color=pink_line, width=1), # 상한선과 동일한 스타일
                     fill='tonexty', 
-                    fillcolor='rgba(255, 105, 180, 0.2)', # HotPink 색상 + 투명도 0.2
-                    line=dict(width=0), 
+                    fillcolor=pink_fill, 
                     name="95% 신뢰구간"
                 ))
                 
-                # 3. 미래 예측치 (밴드 위에 선명하게 표시하기 위해 마지막에 배치)
+                # 4. 미래 예측치 (밴드 위에 가장 선명하게 표시)
                 fig_f.add_trace(go.Scatter(
                     x=future_dates, y=f_res['mean'], 
                     name="미래 예측치", 
-                    line=dict(color="#ef553b", width=3), 
+                    line=dict(color="#ef553b", width=4), # 붉은색 계열로 대비
                     mode='lines+markers'
                 ))
                 
@@ -453,7 +456,8 @@ if st.session_state["processed"] is not None:
                 fig_f.update_layout(
                     height=500, 
                     margin=dict(l=10, r=10, t=30, b=10), 
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    hovermode="x unified"
                 )
                 
                 st.plotly_chart(fig_f, use_container_width=True, key="main_forecast_plot")
