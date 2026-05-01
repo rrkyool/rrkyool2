@@ -376,7 +376,7 @@ if st.session_state["processed"] is not None:
         fig_d = make_subplots(
             rows=1, cols=2, 
             shared_xaxes=True, 
-            vertical_spacing=0.10, 
+            vertical_spacing=0.15, 
             subplot_titles=("📈 Observed & Trend (원본 및 추세)", "🍂 Seasonal & Residual (계절성 및 잔차)")
         )
         
