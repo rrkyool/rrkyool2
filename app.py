@@ -236,7 +236,7 @@ if "eval_preds" not in st.session_state: st.session_state["eval_preds"] = {}
 st.set_page_config(layout="wide", page_title="시계열 수요 예측 대시보드")
 
 with st.sidebar:
-    st.title("📁 분석 설정")
+    st.title("분석 설정")
     with st.container(border=True):
         st.subheader("📂 데이터 업로드")
         file = st.file_uploader("CSV 파일 업로드", type=["csv"])
