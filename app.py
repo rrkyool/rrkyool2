@@ -310,11 +310,30 @@ if st.session_state["processed"] is not None:
     with col2:
         st.subheader("정상성 및 통계 진단")
         with st.container(border=True, height=450):
-            adf, lb = run_stationarity_test(ps), run_ljungbox_test(ps)
-            c1, c2 = st.columns(2)
-            c1.metric("ADF p-value", f"{adf['p_value']:.4f}", "정상" if adf['is_stationary'] else "비정상")
-            c2.metric("Ljung-Box p-value", f"{lb['p_value']:.4f}", "패턴 없음" if lb['p_value'] > 0.05 else "자기상관")
-            time_info = analyze_time_index(ps.index)
+            # 1. 테스트 실행
+            adf = run_stationarity_test(ps)
+            # 백색잡음 검정 (lag=1)
+            wn_test = run_ljungbox_test(ps, lags=1) 
+            # 자기상관 검정 (lag=12 또는 주기 설정값 k)
+            current_period = analyze_time_index(ps.index)['suggested_periods'][0]
+            ac_test = run_ljungbox_test(ps, lags=current_period)
+            
+            # 2. 사용자 교육 로직에 맞춘 3컬럼 배치
+            c1, c2, c3 = st.columns(3)
+            
+            # [c1] ADF 검정: 정상성 여부
+            c1.metric("ADF (단위근 검정)", f"{adf['p_value']:.4f}", 
+                      "정상" if adf['is_stationary'] else "비정상")
+            
+            # [c2] Ljung-Box (lag=1): 백색잡음 여부
+            is_wn = wn_test['p_value'] > 0.05
+            c2.metric("백색잡음 (lag=1)", f"{wn_test['p_value']:.4f}", 
+                      "백색잡음" if is_wn else "패턴 존재")
+            
+            # [c3] Ljung-Box (lag=k): 자기상관 여부
+            has_ac = ac_test['p_value'] < 0.05
+            c3.metric(f"자기상관 (lag={current_period})", f"{ac_test['p_value']:.4f}", 
+                      "모델개선 가능" if has_ac else "개선 불가")
            
             # ADF 검정 결과에 따른 차분 가이드
             if adf['is_stationary']:
@@ -323,10 +342,15 @@ if st.session_state["processed"] is not None:
                 st.error("⚠️ **데이터에 추세나 계절성이 강해 모델의 예측력이 떨어질 수 있음. 차분 권장**")
 
             # Ljung-Box 검정 결과에 따른 모델링 적합성 가이드
-            if lb['p_value'] > 0.05:
-                st.warning("⚠️ **백색잡음(White Noise) 주의. 모델 성능이 낮을 수 있음**")
+            if is_wn['p_value'] > 0.05:
+                st.warning("⚠️ **백색잡음 주의. 모델 성능이 낮을 수 있음**")
             else:
-                st.info("✅ **자기상관(Autocorrelation) 존재. 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지**")
+                st.info("✅ **패턴 존재. 모형 개선 가능**")
+
+             if has_ac['p_value'] > 0.05:
+                st.warning("⚠️ **자기상관 없음. 모델 성능이 낮을 수 있음**")
+            else:
+                st.info("✅ **자기상관 존재. 모형 개선 가능**")
                 
             st.divider()
             st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
