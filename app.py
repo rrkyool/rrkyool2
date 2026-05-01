@@ -485,7 +485,7 @@ if st.session_state["processed"] is not None:
         
         with e_col1:
             with st.container(border = True):
-                st.markdown("📊 성능 평가 로그")
+                st.markdown("### 성능 평가 로그")
                 if not st.session_state["perf_log"].empty:
                     # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
                     st.dataframe(st.session_state["perf_log"], use_container_width=True)
@@ -494,7 +494,7 @@ if st.session_state["processed"] is not None:
     
         with e_col2:
             with st.container(border=True):
-                st.markdown("🔍 모델 검증 (Actual vs Prediction)")
+                st.markdown("### 모델 검증 및 비교(Actual vs Prediction)")
     
                 # eval_preds가 존재할 때만 시각화 실행
                 eval_data = st.session_state.get("eval_preds")
