@@ -327,7 +327,7 @@ if st.session_state["processed"] is not None:
                 st.info("✅ **자기상관(Autocorrelation) 존재. 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지**")
                 st.markdown("- 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지되었습니다. 시계열 모델(ARIMA, SARIMA 등)을 통해 **충분히 예측 가능한 데이터**입니다.")
 
-        st.devider()
+            st.divider()
             st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
             freq = time_info['frequency']
 
