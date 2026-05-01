@@ -429,8 +429,8 @@ if st.session_state["processed"] is not None:
                 fig_f.add_trace(go.Scatter(x=ps.index[split_idx-1:], y=ps.iloc[split_idx-1:], name="검증 데이터(Test)", line=dict(color="#ff7f0e", dash="dot")))
                 
                 # --- 신뢰구간 스타일 정의 ---
-                pink_line = 'rgba(255, 240, 245, 0.3)'  # 상/하한선 경계 (연한 분홍)
-                pink_fill = 'rgba(255, 240, 245, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
+                pink_line = 'rgba(255, 182, 193, 0.3)'  # 상/하한선 경계 (연한 분홍)
+                pink_fill = 'rgba(255, 182, 193, 0.1)'  # 밴드 내부 채우기 (매우 투명한 분홍)
                 
                 # 2. 신뢰구간 상한선 (Upper Bound)
                 fig_f.add_trace(go.Scatter(
@@ -484,7 +484,7 @@ if st.session_state["processed"] is not None:
         e_col1, e_col2 = st.columns([1, 1.2])
         
         with e_col1:
-            st.markdown("📊 성능 평가 로그")
+            st.markdown("###📊 성능 평가 로그")
             if not st.session_state["perf_log"].empty:
                 # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
                 st.dataframe(st.session_state["perf_log"], use_container_width=True)
@@ -492,7 +492,7 @@ if st.session_state["processed"] is not None:
                 st.warning("기록된 로그가 없습니다.")
     
         with e_col2:
-            st.markdown("🔍 모델 검증 (Actual vs Prediction)")
+            st.markdown("###🔍 모델 검증 (Actual vs Prediction)")
 
             # eval_preds가 존재할 때만 시각화 실행
             eval_data = st.session_state.get("eval_preds")
