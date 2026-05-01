@@ -318,25 +318,18 @@ if st.session_state["processed"] is not None:
             # ADF 검정 결과에 따른 차분 가이드
             if adf['is_stationary']:
                 st.markdown("#### ✨ **정상성 분석 결과**")
-                st.success("✅ **현재 데이터는 정상성(Stationarity)을 만족합니다.**")
-                st.markdown("- 평균과 분산이 일정하여 별도의 **차분(Differencing) 없이** 모델링이 가능합니다.")
+                st.success("✅ **정상성 만족**")
             else:
                 st.markdown("#### ✨ **정상성 분석 결과**")
-                st.error("⚠️ **현재 데이터는 비정상(Non-stationary) 상태입니다.**")
-                st.markdown("""
-                - 데이터에 추세나 계절성이 강해 모델의 예측력이 떨어질 수 있습니다.
-                - **1차 차분($y_t - y_{t-1}$)** 또는 **계절 차분**을 통해 데이터를 정상화한 후 분석하는 것을 권장합니다.
-                - ARIMA 모델 사용 시 `d=1` 이상의 파라미터 설정이 필요할 수 있습니다.
-                """)
+                st.error("⚠️ **데이터에 추세나 계절성이 강해 모델의 예측력이 떨어질 수 있음. 차분 권장**")
             
             st.divider()
 
             # Ljung-Box 검정 결과에 따른 모델링 적합성 가이드
             if lb['p_value'] > 0.05:
-                st.warning("📊 **백색잡음(White Noise) 주의**")
-                st.markdown("- 데이터에서 유의미한 자기상관 패턴이 발견되지 않았습니다. 즉, 예측하기 어려운 **무작위 노이즈**일 가능성이 높으므로 모델 성능이 낮을 수 있습니다.")
+                st.warning("⚠️ **백색잡음(White Noise) 주의. 모델 성능이 낮을 수 있음**")
             else:
-                st.info("📊 **자기상관(Autocorrelation) 존재**")
+                st.info("✅ **자기상관(Autocorrelation) 존재. 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지**")
                 st.markdown("- 과거의 데이터가 미래에 영향을 주는 유의미한 패턴이 감지되었습니다. 시계열 모델(ARIMA, SARIMA 등)을 통해 **충분히 예측 가능한 데이터**입니다.")
             
             st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
@@ -378,7 +371,7 @@ if st.session_state["processed"] is not None:
     
         # 3. 차트 생성 (전체 너비 사용)
         fig_d = make_subplots(
-            rows=2, cols=1, 
+            rows=1, cols=2, 
             shared_xaxes=True, 
             vertical_spacing=0.15, 
             subplot_titles=("📈 Observed & Trend (원본 및 추세)", "🍂 Seasonal & Residual (계절성 및 잔차)")
@@ -389,8 +382,8 @@ if st.session_state["processed"] is not None:
         fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
         
         # 하단: 계절성(초록) + 잔차(주황/마커)
-        fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=2, col=1)
-        fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=2, col=1)
+        fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2)
+        fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2)
         
         # 레이아웃 최적화
         fig_d.update_layout(
@@ -403,79 +396,37 @@ if st.session_state["processed"] is not None:
         # 차트를 컨테이너 전체 너비로 출력
         st.plotly_chart(fig_d, use_container_width=True)
 
-    if st.session_state["forecast_res"] is not None:
-        st.divider(); st.subheader("📑 최종 수요 예측 결과 및 분석 리포트")
-        f_res, future_dates = st.session_state["forecast_res"], st.session_state.get("future_dates")
+   # [4행] 최종 수요 예측 결과 및 분석 리포트
+    if st.session_state.get("forecast_res") is not None:
+        # 전처리 데이터 안전하게 가져오기 (ps가 정의되지 않았을 경우 대비)
+        ps = st.session_state.get("processed")
         
-        # [수정] 날짜-예측값 길이 불일치 방어 코드
-        if future_dates is None or len(future_dates) != len(f_res['mean']):
-            freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') else "D"
-            future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=freq)[1:]
-
+        st.divider()
+        st.subheader("📑 최종 수요 예측 결과 및 분석 리포트")
+        
+        f_res = st.session_state["forecast_res"]
+        # 날짜 인덱스 복구 및 일관성 유지 [cite: 250]
+        freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') else "D"
+        future_dates = pd.date_range(start=ps.index[-1], periods=len(f_res['mean'])+1, freq=freq)[1:]
+    
         r_col1, r_col2 = st.columns([1.5, 1])
         with r_col1:
-           with st.container(border=True, height=600):
+            with st.container(border=True, height=600):
                 fig_f = go.Figure()
-                
-                # 데이터 분할 (학습 80%, 검증 20%)
                 split_idx = int(len(ps) * 0.8)
-                train_data = ps.iloc[:split_idx]
-                test_data = ps.iloc[split_idx:]
                 
-                # 1. 학습 데이터 (Train - 파란색 실선)
-                fig_f.add_trace(go.Scatter(
-                    x=train_data.index, 
-                    y=train_data.values, 
-                    name="학습 데이터(Train)", 
-                    line=dict(color="#1f77b4", width=2)
-                )) [cite: 94, 230]
-            
-                # 2. 검증 데이터 (Test - 주황색 점선)
-                # 학습 데이터의 마지막 포인트와 연결하기 위해 train의 마지막 값을 포함하여 그립니다.
-                test_plot_data = ps.iloc[split_idx-1:] 
-                fig_f.add_trace(go.Scatter(
-                    x=test_plot_data.index, 
-                    y=test_plot_data.values, 
-                    name="검증 데이터(Test)", 
-                    line=dict(color="#ff7f0e", width=2, dash="dot")
-                )) [cite: 210, 238]
-            
-                # 3. 미래 예측치 (Forecast - 빨간색 굵은 선)
-                fig_f.add_trace(go.Scatter(
-                    x=future_dates, 
-                    y=f_res['mean'], 
-                    name="미래 예측치", 
-                    line=dict(color="#ef553b", width=4),
-                    mode='lines+markers'
-                )) [cite: 94, 159, 230]
-            
-                # 4. 신뢰 구간 (연한 빨강 투명 밴드)
-                # 상단 경계 (투명 선)
-                fig_f.add_trace(go.Scatter(
-                    x=future_dates, y=f_res['upper'], 
-                    line=dict(color='rgba(255,255,255,0)', width=0), 
-                    showlegend=False, hoverinfo='skip'
-                )) [cite: 95, 160, 231]
+                # 학습/검증/예측 데이터 분할 시각화 [cite: 230, 238]
+                fig_f.add_trace(go.Scatter(x=ps.index[:split_idx], y=ps.iloc[:split_idx], name="학습 데이터(Train)", line=dict(color="#1f77b4")))
+                fig_f.add_trace(go.Scatter(x=ps.index[split_idx-1:], y=ps.iloc[split_idx-1:], name="검증 데이터(Test)", line=dict(color="#ff7f0e", dash="dot")))
+                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['mean'], name="미래 예측치", line=dict(color="#ef553b", width=4), mode='lines+markers'))
                 
-                # 하단 경계 및 채우기
-                fig_f.add_trace(go.Scatter(
-                    x=future_dates, y=f_res['lower'], 
-                    fill='tonexty', 
-                    fillcolor='rgba(239, 85, 59, 0.15)', 
-                    line=dict(color='rgba(255,255,255,0)', width=0), 
-                    name="95% 신뢰구간"
-                )) [cite: 77, 160, 231]
-            
-                # 레이아웃 설정
-                fig_f.update_layout(
-                    height=500,
-                    margin=dict(l=10, r=10, t=30, b=10),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    hovermode="x unified"
-                ) [cite: 96, 161, 231]
+                # 신뢰구간 투명 밴드 적용 [cite: 231]
+                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['upper'], line=dict(width=0), showlegend=False, hoverinfo='skip'))
+                fig_f.add_trace(go.Scatter(x=future_dates, y=f_res['lower'], fill='tonexty', fillcolor='rgba(239, 85, 59, 0.15)', line=dict(width=0), name="95% 신뢰구간"))
                 
-                st.plotly_chart(fig_f, use_container_width=True)
-               
+                fig_f.update_layout(height=500, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_f, use_container_width=True, key="main_forecast_plot")
+    
         with r_col2:
             with st.container(border=True, height=600):
                 summ = summarize_forecast(f_res)
@@ -484,55 +435,40 @@ if st.session_state["processed"] is not None:
                 st.divider()
                 u = st.session_state.get("sel_unit", "일")
                 st.info(f"✔️ {u} 단위 환산: {aggregate_forecast(f_res, {'일':'D','주':'W','월':'M','년':'Y'}.get(u, 'D')):,.2f}")
+                st.write("📅 상세 예측 데이터")
                 st.dataframe(pd.DataFrame({"날짜": future_dates, "예측값": f_res['mean'], "하한": f_res['lower'], "상한": f_res['upper']}), use_container_width=True, height=250)
-
-    st.divider(); st.subheader("📏 성능 평가 및 모델 검증")
-    e_col1, e_col2 = st.columns([1, 1.2])
-    with e_col1:
-        if not st.session_state["perf_log"].empty: st.table(st.session_state["perf_log"])
-        else: st.warning("기록된 로그가 없습니다.")
-    with e_col2:
-        if st.session_state.get("eval_preds"):
-            # 1. Test 데이터 전체 구간 설정 (전체 데이터의 마지막 20%)
-            split_idx = int(len(ps) * 0.8)
-            test_p = ps.iloc[split_idx:]
+    
+        # [5행] 성능 평가 및 모델 검증 (오류 수정 핵심 영역)
+        st.divider()
+        st.subheader("📏 성능 평가 및 모델 검증")
+        e_col1, e_col2 = st.columns([1, 1.2])
+        
+        with e_col1:
+            st.write("📊 성능 평가 로그")
+            if not st.session_state["perf_log"].empty:
+                # 선명도를 위해 컨테이너 외부 배치 및 st.table/dataframe 선택 
+                st.dataframe(st.session_state["perf_log"], use_container_width=True)
+            else:
+                st.warning("기록된 로그가 없습니다.")
+    
+        with e_col2:
+            st.write("🔍 모델 검증 (Actual vs Prediction)")
+            # eval_preds가 존재할 때만 시각화 실행 [cite: 173, 245]
+            eval_data = st.session_state.get("eval_preds")
             
-            fig_v = go.Figure()
-            
-            # 2. 실제값 (Actual - 초록색 점선)
-            fig_v.add_trace(go.Scatter(
-                x=test_p.index, 
-                y=test_p.values, 
-                name="Actual (실제값)", 
-                line=dict(color="green", dash='dot', width=2)
-            ))
-            
-            # 3. 모델별 전체 구간 예측값 시각화
-            for label, p_val in st.session_state["eval_preds"].items():
-                # 예측 데이터(p_val)가 test_p보다 짧을 경우를 대비해 인덱스를 슬라이싱하여 일치시킴
-                current_test_index = test_p.index[:len(p_val)]
+            if eval_data:
+                split_idx = int(len(ps) * 0.8)
+                test_p = ps.iloc[split_idx:]
                 
-                fig_v.add_trace(go.Scatter(
-                    x=current_test_index, 
-                    y=p_val, 
-                    name=f"Pred({label})",
-                    line=dict(width=2)
-                ))
-            
-            # 4. 레이아웃 최적화 (가독성 향상)
-            fig_v.update_layout(
-                height=400, 
-                margin=dict(l=10, r=10, t=10, b=10), 
-                legend=dict(
-                    orientation="h", 
-                    yanchor="bottom", 
-                    y=1.02, 
-                    xanchor="right", 
-                    x=1
-                ),
-                hovermode="x unified",
-                xaxis_title="Time",
-                yaxis_title="Value"
-            )
-            
-            st.plotly_chart(fig_v, use_container_width=True)
+                fig_v = go.Figure()
+                fig_v.add_trace(go.Scatter(x=test_p.index, y=test_p.values, name="Actual (실제값)", line=dict(color="green", dash='dot', width=2)))
+                
+                for label, p_val in eval_data.items():
+                    # 데이터 길이 불일치 방지 [cite: 137]
+                    fig_v.add_trace(go.Scatter(x=test_p.index[:len(p_val)], y=p_val, name=f"Pred({label})"))
+                
+                fig_v.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_v, use_container_width=True, key="validation_plot")
+            else:
+                # 데이터가 없을 경우 사용자 가이드 제공 [cite: 238]
+                st.info("💡 사이드바에서 '🚀 수요 예측 실행' 버튼을 클릭하면 검증 차트가 생성됩니다.")
