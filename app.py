@@ -361,47 +361,47 @@ if st.session_state["processed"] is not None:
 
     st.divider()
     with st.container(border=True):
-    st.subheader("시계열 분해 결과(Decomposition)")
+        st.subheader("시계열 분해 결과(Decomposition)")
+        
+        # 1. 데이터 분석 및 주기 설정
+        current_period = analyze_time_index(ps.index)['suggested_periods'][0]
+        decomp_res = decompose_series(ps, current_period)
+        summary = summarize_decomposition(decomp_res) # [cite: 60, 195]
+        
+        # 2. 지표를 차트 바로 위 상단에 가로로 배치
+        # 비율을 [1, 1, 2] 정도로 두어 지표는 왼쪽에 붙고 오른쪽은 여백을 둡니다.
+        m1, m2, m3 = st.columns([1, 1, 2])
+        m1.metric("📈 추세 강도", summary['trend_strength'])
+        m2.metric("🍂 계절성 강도", summary['seasonal_strength'])
+        
+        st.divider() # 지표와 차트 사이 시각적 구분선
     
-    # 1. 데이터 분석 및 주기 설정
-    current_period = analyze_time_index(ps.index)['suggested_periods'][0]
-    decomp_res = decompose_series(ps, current_period)
-    summary = summarize_decomposition(decomp_res) # [cite: 60, 195]
-    
-    # 2. 지표를 차트 바로 위 상단에 가로로 배치
-    # 비율을 [1, 1, 2] 정도로 두어 지표는 왼쪽에 붙고 오른쪽은 여백을 둡니다.
-    m1, m2, m3 = st.columns([1, 1, 2])
-    m1.metric("📈 추세 강도", summary['trend_strength'])
-    m2.metric("🍂 계절성 강도", summary['seasonal_strength'])
-    
-    st.divider() # 지표와 차트 사이 시각적 구분선
-
-    # 3. 차트 생성 (전체 너비 사용)
-    fig_d = make_subplots(
-        rows=2, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.15, 
-        subplot_titles=("📈 Observed & Trend (원본 및 추세)", "🍂 Seasonal & Residual (계절성 및 잔차)")
-    )
-    
-    # 상단: 원본(회색) + 추세(파란색)
-    fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
-    fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
-    
-    # 하단: 계절성(초록) + 잔차(주황/마커)
-    fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=2, col=1)
-    fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=2, col=1)
-    
-    # 레이아웃 최적화
-    fig_d.update_layout(
-        height=550, 
-        margin=dict(t=40, b=20, l=10, r=10),
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    
-    # 차트를 컨테이너 전체 너비로 출력
-    st.plotly_chart(fig_d, use_container_width=True)
+        # 3. 차트 생성 (전체 너비 사용)
+        fig_d = make_subplots(
+            rows=2, cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.15, 
+            subplot_titles=("📈 Observed & Trend (원본 및 추세)", "🍂 Seasonal & Residual (계절성 및 잔차)")
+        )
+        
+        # 상단: 원본(회색) + 추세(파란색)
+        fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
+        fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
+        
+        # 하단: 계절성(초록) + 잔차(주황/마커)
+        fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=2, col=1)
+        fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=2, col=1)
+        
+        # 레이아웃 최적화
+        fig_d.update_layout(
+            height=550, 
+            margin=dict(t=40, b=20, l=10, r=10),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # 차트를 컨테이너 전체 너비로 출력
+        st.plotly_chart(fig_d, use_container_width=True)
 
     if st.session_state["forecast_res"] is not None:
         st.divider(); st.subheader("📑 최종 수요 예측 결과 및 분석 리포트")
