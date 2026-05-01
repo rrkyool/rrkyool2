@@ -366,7 +366,14 @@ if st.session_state["processed"] is not None:
         m1, m2, m3 = st.columns([1, 1, 2])
         m1.metric("📈 추세 강도", summary['trend_strength'])
         m2.metric("🍂 계절성 강도", summary['seasonal_strength'])
-        
+        with m3:
+            st.markdown("""
+            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
+                <small>💡 <b>지표 해석 가이드</b></small><br>
+                <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 상승/하락 경향이 뚜렷함을 의미합니다.</small><br>
+                <small>• <b>계절성 강도</b>: 1에 가까울수록 특정 주기(일/주/월 등)마다 반복되는 패턴이 강함을 의미합니다.</small>
+            </div>
+            """, unsafe_allow_html=True)
         st.divider() # 지표와 차트 사이 시각적 구분선
     
         # 3. 차트 생성 (전체 너비 사용)
