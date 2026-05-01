@@ -356,7 +356,7 @@ if st.session_state["processed"] is not None:
         
         # 1. 데이터 분석 및 주기 설정
         current_period = analyze_time_index(ps.index)['suggested_periods'][0]
-        decomp_res = decompose_series(ps, current_period)
+        decomp_res = decompose_series(ps, current_period*4)
         summary = summarize_decomposition(decomp_res) # [cite: 60, 195]
         
         # 2. 지표를 차트 바로 위 상단에 가로로 배치
