@@ -334,6 +334,7 @@ if st.session_state["processed"] is not None:
             has_ac = ac_test['p_value'] < 0.05
             c3.metric(f"자기상관 (lag={current_period})", f"{ac_test['p_value']:.4f}", 
                       "모델개선 가능" if has_ac else "개선 불가")
+            time_info = analyze_time_index(ps.index)
            
             # ADF 검정 결과에 따른 차분 가이드
             if adf['is_stationary']:
@@ -356,7 +357,6 @@ if st.session_state["processed"] is not None:
 
            
             st.write(f"📅 기간: `{time_info['start'].date()}` ~ `{time_info['end'].date()}`")
-            time_info = analyze_time_index(ps.index)
             freq = time_info['frequency']
 
             # freq를 사람이 읽을 수 있게 변환
