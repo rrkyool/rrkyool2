@@ -379,51 +379,52 @@ if st.session_state["processed"] is not None:
     st.divider()
 
     # [2행] 시계열 분해 (기존 시각화 유지 + 예외 처리 추가)
+    # [2행] 시계열 분해 (NameError 및 데이터 부족 오류 해결 버전)
     st.subheader("시계열 분해 결과(Decomposition)")
     with st.container(border=True):
         # 1. 데이터 분석 및 주기 설정
-        time_info = analyze_time_index(ps.index) [cite: 145, 210]
-        current_period = time_info['suggested_periods'][0] [cite: 145, 210]
-        required_len = current_period * 2  # seasonal_decompose 수행을 위한 최소 필요 길이 
-    
-        # --- 데이터 길이 검증 로직 추가 ---
+        # 주의: 코드 끝에 붙은 태그는 반드시 제거해야 합니다.
+        time_info = analyze_time_index(ps.index) 
+        current_period = time_info['suggested_periods'][0]
+        required_len = current_period * 2  # 분해를 위한 최소 필요 길이
+        
+        # 2. 데이터 길이 검증 (30개 등 짧은 데이터 업로드 시 대응)
         if len(ps) < required_len:
-            st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)") [cite: 7, 206]
-            st.info("💡 팁: 더 긴 기간의 데이터를 업로드하거나, 분석 주기를 조정해 보세요.")
+            st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
+            st.info("💡 팁: 더 긴 기간의 데이터를 업로드하거나, 사이드바에서 데이터 주기를 조정해 보세요.")
         else:
             try:
-                # 2. 시계열 분해 및 지표 산출
-                decomp_res = decompose_series(ps, current_period) [cite: 7, 206]
-                summary = summarize_decomposition(decomp_res) [cite: 8, 208]
-    
+                # 3. 시계열 분해 실행
+                decomp_res = decompose_series(ps, current_period)
+                summary = summarize_decomposition(decomp_res)
+                
                 # 상단 지표 레이아웃 (m1, m2, m3)
                 m1, m2, m3 = st.columns([1, 1, 2])
-                m1.metric("📈 추세 강도", summary['trend_strength'])
-                m2.metric("🍂 계절성 강도", summary['seasonal_strength'])
+                m1.metric("📈 추세 강도", f"{summary['trend_strength']:.2f}")
+                m2.metric("🍂 계절성 강도", f"{summary['seasonal_strength']:.2f}")
                 with m3:
                     st.markdown("""
                     <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
                         <small>💡 <b>지표 해석 가이드</b></small><br>
-                        <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 상승/하락 경향이 뚜렷함</small><br>
+                        <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 방향성이 뚜렷함</small><br>
                         <small>• <b>계절성 강도</b>: 1에 가까울수록 주기적인 패턴이 강함</small>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 st.divider()
     
-                # 3. 차트 생성 (요청하신 1행 2열 구조 유지)
+                # 4. 차트 생성 (1행 2열 구조)
                 fig_d = make_subplots(
                     rows=1, cols=2, 
                     shared_xaxes=True, 
-                    vertical_spacing=0.15, 
                     subplot_titles=("📈 Original & Trend", "🍂 Seasonal & Residual")
-                ) [cite: 7, 141, 206]
+                )
     
-                # 데이터 트레이스 (기존 로직)
-                fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1) [cite: 8, 142, 207]
-                fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1) [cite: 8, 142, 207]
-                fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2) [cite: 8, 142, 207]
-                fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2) [cite: 8, 142, 207]
+                # 데이터 트레이스 추가
+                fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
+                fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
+                fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2)
+                fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2)
     
                 # 레이아웃 최적화
                 fig_d.update_layout(
@@ -431,12 +432,12 @@ if st.session_state["processed"] is not None:
                     margin=dict(t=60, b=20, l=10, r=10),
                     showlegend=True,
                     legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1)
-                ) [cite: 8, 143, 208]
+                )
     
-                st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot")
+                st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot_final")
                 
             except Exception as e:
-                st.error(f"분석 중 오류 발생: {e}")
+                st.error(f"분석 중 예기치 못한 오류가 발생했습니다: {e}")
 
    # [4행] 최종 수요 예측 결과 및 분석 리포트
     if st.session_state.get("forecast_res") is not None:
