@@ -148,6 +148,57 @@ def get_freq_label(freq):
     if days > 0: return f"{days}일 단위"
     return f"{hours}시간 단위"
 
+def get_period_unit_text(freq, period):
+    """빈도와 주기를 결합하여 사람이 읽기 좋은 텍스트로 변환"""
+    if freq is None: return f"{period}개 포인트"
+    
+    days = freq.days
+    hours = freq.components.hours
+    
+    # 1. 시간 단위 데이터
+    if hours == 1 or freq <= pd.Timedelta("1H"):
+        if period == 24: return "24시간 (1일)"
+        if period == 168: return "168시간 (1주일)"
+        return f"{period}시간"
+    
+    # 2. 일 단위 데이터
+    if days == 1:
+        if period == 7: return "7일 (1주일)"
+        if period == 30: return "30일 (약 1개월)"
+        if period == 365: return "365일 (1년)"
+        return f"{period}일"
+    
+    # 3. 주 단위 데이터 (사용자님 케이스)
+    if days == 7:
+        if period == 4: return "4주 (약 1개월)"
+        if period == 12: return "12주 (약 1분기)"
+        if period == 52: return "52주 (1년)"
+        return f"{period}주"
+    
+    # 4. 월 단위 데이터
+    if 28 <= days <= 31:
+        if period == 3: return "3개월 (1분기)"
+        if period == 12: return "12개월 (1년)"
+        return f"{period}개월"
+        
+    return f"{period}개 마디"
+
+# --- 대시보드 출력 부분 적용 ---
+time_info = analyze_time_index(ps.index)
+freq_obj = time_info['frequency']
+suggested_p = time_info['suggested_periods'][0]
+
+# 주기 설명 텍스트 생성 (예: "4주 (약 1개월)")
+period_desc = get_period_unit_text(freq_obj, suggested_p)
+# 데이터 빈도 텍스트 (예: "7일(1주일) 단위")
+freq_label = get_freq_label(freq_obj) 
+
+st.write(f"""
+    📏 **데이터 기록 빈도**: `{freq_label}`  
+    🔄 **분석 추천 주기**: `{period_desc}`  
+    *(현재 데이터가 `{suggested_p}`개 모일 때 하나의 반복 패턴이 형성된다고 가정합니다.)*
+    """)
+
 def analyze_time_index(index):
     freq = infer_frequency(index)
     span = get_time_span(index)
@@ -363,10 +414,16 @@ if st.session_state["processed"] is not None:
             has_ac = ac_test['p_value'] < 0.05
             c3.metric(f"자기상관 (lag={current_period})", f"{ac_test['p_value']:.4f}", 
                       "모델개선 가능" if has_ac else "개선 불가")
+            
             time_info = analyze_time_index(ps.index)
-            freq_label = get_freq_label(time_info['frequency']) # 한글 라벨 생성
+            freq_obj = time_info['frequency']
             suggested_p = time_info['suggested_periods'][0]
-           
+            
+            # 주기 설명 텍스트 생성 (예: "4주 (약 1개월)")
+            period_desc = get_period_unit_text(freq_obj, suggested_p)
+            # 데이터 빈도 텍스트 (예: "7일(1주일) 단위")
+            freq_label = get_freq_label(freq_obj)
+            
             # ADF 검정 결과에 따른 차분 가이드
             if adf['is_stationary']:
                 st.success("✅ **정상성 만족**")
@@ -404,7 +461,7 @@ if st.session_state["processed"] is not None:
 
             st.write(f"""
             📏 **데이터 기록 빈도**: `{freq_label}`  
-            🔄 **분석 추천 주기**: `{suggested_p}` 
+            🔄 **분석 추천 주기**: `{period_desc}`  
             """)
 
     st.divider()
