@@ -520,7 +520,6 @@ if st.session_state["processed"] is not None:
                 unit_map = {'일': 'D', '주': 'W', '월': 'MS', '년': 'YS'} # MS는 월초, YS는 연초 기준
                 target_freq = unit_map.get(u, 'D')
                 
-                st.info(f"✔️ {u} 단위 환산: {aggregate_forecast(f_res, target_freq):,.2f}")
                 st.write("📅 상세 예측 데이터")
             
                 # [수정 포인트] 선택한 단위(u)에 맞춰 실제 예측된 개수(len(f_res['mean']))만큼 날짜 생성
