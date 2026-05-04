@@ -144,6 +144,37 @@ def suggest_periods(freq):
         return [12, 4]    # 연간(12개월) 우선
     return [1]
 
+def get_auto_period(freq, series_length):
+    """
+    데이터 빈도에 따라 선형적 추세를 유도할 수 있는 최적 주기를 자동 계산
+    """
+    if freq is None:
+        return 2 # 최소 주기
+    
+    # 1. 빈도별 기본 마디 설정
+    if freq <= pd.Timedelta("1H"): 
+        base_period = 24  # 일간 패턴
+        multiplier = 7    # -> 주간(168)으로 확장 시도
+    elif freq <= pd.Timedelta("1D"): 
+        base_period = 7   # 주간 패턴
+        multiplier = 4    # -> 월간(28~30)으로 확장 시도
+    elif freq <= pd.Timedelta("7D"): 
+        base_period = 4   # 월간 패턴(주 단위 데이터 기준)
+        multiplier = 12   # -> 연간(48~52)으로 확장 시도
+    else:
+        base_period = 12  # 연간 패턴
+        multiplier = 1
+        
+    # 2. 임의로 곱해서 장기 주기 도출
+    target_period = base_period * multiplier
+    
+    # 3. 안전 장치: 데이터 길이가 주기보다 최소 2배는 길어야 함
+    if series_length < target_period * 2:
+        # 데이터가 부족하면 기본 마디(base_period)만 사용
+        return base_period if series_length >= base_period * 2 else 2
+        
+    return target_period
+
 def get_freq_label(freq):
     """Timedelta 빈도를 사용자가 이해하기 쉬운 한글 텍스트로 변환"""
     if freq is None: return "판단 불가"
@@ -460,32 +491,19 @@ if st.session_state["processed"] is not None:
 
     st.divider()
 
-
     st.subheader("시계열 분해 결과(Decomposition)")
     with st.container(border=True):
         try:
-            # 데이터 분석 및 주기 후보군 가져오기
+            # 1. 데이터 빈도 분석
             time_info = analyze_time_index(ps.index)
-            periods_list = time_info['suggested_periods']
+            freq = time_info['frequency']
             
-            # [추가] 사용자가 주기를 직접 선택할 수 있게 하여 결과 조절권 부여
-            # 주기가 커질수록 추세(Trend)는 선형에 가까워집니다.
-            selected_period = st.selectbox(
-                "🧐 분석 주기(Period) 선택", 
-                options=periods_list,
-                format_func=lambda x: f"{x} (데이터 빈도 기준 추천)",
-                help="주기가 클수록 추세선이 매끄러워지고, 해당 마디 안에서의 반복 패턴이 계절성으로 나타납니다."
-            )
+            # 2. 장기 주기 자동 산출 (사용자 선택 없이 자동 적용)
+            auto_period = get_auto_period(freq, len(ps))
             
-            required_len = selected_period * 2 
-            
-            if len(ps) < required_len:
-                st.warning(f"⚠️ 선택한 주기({selected_period})를 분석하기에 데이터가 부족합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
-            else:
-                # 시계열 분해 실행 (사용자가 선택한 주기에 따라 결과가 달라짐)
-                # 선형적인 추세를 위해 모델을 가급적 'additive'로 유지하거나 데이터 특성에 따라 선택
-                decomp_res = seasonal_decompose(ps, model='additive', period=selected_period)
-                summary = summarize_decomposition(decomp_res)
+            # 3. 시계열 분해 실행 (가법 모델 적용)
+            decomp_res = seasonal_decompose(ps, model='additive', period=auto_period)
+            summary = summarize_decomposition(decomp_res)
                     
                 # 상단 지표 레이아웃
                 m1, m2, m3 = st.columns([1, 1, 2])
