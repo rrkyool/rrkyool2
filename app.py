@@ -507,11 +507,35 @@ if st.session_state["processed"] is not None:
                 m1, m2, m3 = st.columns(3)
                 m1.metric("평균", f"{summ['avg']:,.1f}"); m2.metric("최대", f"{summ['max']:,.1f}"); m3.metric("최소", f"{summ['min']:,.1f}")
                 st.divider()
+                
                 u = st.session_state.get("sel_unit", "일")
-                st.info(f"✔️ {u} 단위 환산: {aggregate_forecast(f_res, {'일':'D','주':'W','월':'M','년':'Y'}.get(u, 'D')):,.2f}")
+                # 단위를 데이터프레임 빈도 코드로 변환
+                unit_map = {'일': 'D', '주': 'W', '월': 'MS', '년': 'YS'} # MS는 월초, YS는 연초 기준
+                target_freq = unit_map.get(u, 'D')
+                
+                st.info(f"✔️ {u} 단위 환산: {aggregate_forecast(f_res, target_freq):,.2f}")
                 st.write("📅 상세 예측 데이터")
-                st.dataframe(pd.DataFrame({"날짜": future_dates, "예측값": f_res['mean'], "하한": f_res['lower'], "상한": f_res['upper']}), use_container_width=True, height=250)
-    
+            
+                # [수정 포인트] 선택한 단위(u)에 맞춰 실제 예측된 개수(len(f_res['mean']))만큼 날짜 생성
+                # 만약 월 단위 예측이라면, 마지막 날짜로부터 1개월씩 증가하는 인덱스를 생성합니다.
+                corrected_future_dates = pd.date_range(
+                    start=ps.index[-1], 
+                    periods=len(f_res['mean']) + 1, 
+                    freq=target_freq
+                )[1:]
+            
+                # 생성된 날짜와 예측값을 매칭하여 출력
+                st.dataframe(
+                    pd.DataFrame({
+                        "날짜": corrected_future_dates.strftime('%Y-%m-%d'), # 가독성을 위해 날짜 포맷팅
+                        "예측값": f_res['mean'], 
+                        "하한": f_res['lower'], 
+                        "상한": f_res['upper']
+                    }), 
+                    use_container_width=True, 
+                    height=250
+                )
+        
         # [5행] 성능 평가 및 모델 검증 (오류 수정 핵심 영역)
         st.divider()
         st.subheader("성능 평가 및 모델 검증")
