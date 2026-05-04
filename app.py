@@ -244,29 +244,10 @@ def exp_forecast(train, horizon):
     return forecast.values, forecast.values - train.std(), forecast.values + train.std()
 
 def hw_forecast(train, horizon, period):
-    # 1. 데이터가 너무 짧거나 주기가 데이터의 절반보다 길면 기본 Holt(계절성 제외)로 강제 전환
-    if len(train) < period * 2:
-        period = None 
-    
-    try:
-        # 최적화 반복 횟수(maxiter)를 제한하여 무한 루프 방지 및 속도 향상
-        model = ExponentialSmoothing(
-            train, 
-            trend="add", 
-            seasonal="add" if period else None, 
-            seasonal_periods=period
-        ).fit(method='L-BFGS-B', maxiter=50) # 속도와 안정성을 위한 설정
-        
-    except Exception as e:
-        # 에러 발생 시 가장 단순하고 견고한 '단순 지수 평활법'으로 백업
-        from statsmodels.tsa.holtwinters import SimpleExpSmoothing
-        model = SimpleExpSmoothing(train).fit()
-        st.warning("⚠️ 홀트 모델 연산 오류로 인해 단순 평활 모델로 대체되었습니다.")
-
+    try: model = ExponentialSmoothing(train, trend="add", seasonal="add", seasonal_periods=period).fit()
+    except: model = ExponentialSmoothing(train, trend="add", seasonal="mul", seasonal_periods=period).fit()
     forecast = model.forecast(horizon)
-    # 신뢰구간 계산 (속도를 위해 표준편차 기반 단순화)
-    std_val = train.std()
-    return forecast.values, forecast.values - std_val, forecast.values + std_val
+    return forecast.values, forecast.values - train.std(), forecast.values + train.std()
 
 def stl_forecast(train, horizon, period):
     model = STLForecast(train, ARIMA, model_kwargs={"order": (1,1,1)}, period=period)
