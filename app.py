@@ -107,10 +107,22 @@ def decompose_series(series, period):
     return seasonal_decompose(series, model='additive', period=period)
 
 def summarize_decomposition(result):
-    trend_strength = result.trend.std() / result.observed.std()
-    seasonal_strength = result.seasonal.std() / result.observed.std()
-    return {"trend_strength": round(trend_strength, 2), "seasonal_strength": round(seasonal_strength, 2)}
-
+    # 1. 추세 강도 계산
+    # 공식: max(0, 1 - Var(Resid) / Var(Trend + Resid))
+    resid_var = np.nanvar(result.resid)
+    trend_resid_var = np.nanvar(result.trend + result.resid)
+    trend_strength = max(0, 1 - (resid_var / trend_resid_var))
+    
+    # 2. 계절성 강도 계산
+    # 공식: max(0, 1 - Var(Resid) / Var(Seasonal + Resid))
+    seasonal_resid_var = np.nanvar(result.seasonal + result.resid)
+    seasonal_strength = max(0, 1 - (resid_var / seasonal_resid_var))
+    
+    return {
+        "trend_strength": round(trend_strength, 2), 
+        "seasonal_strength": round(seasonal_strength, 2)
+    }
+    
 def infer_frequency(index):
     if not isinstance(index, pd.DatetimeIndex): raise ValueError("DatetimeIndex 필요")
     diffs = index.to_series().diff().dropna()
