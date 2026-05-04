@@ -244,29 +244,10 @@ def exp_forecast(train, horizon):
     return forecast.values, forecast.values - train.std(), forecast.values + train.std()
 
 def hw_forecast(train, horizon, period):
-    try:
-        # initialization_method="estimated"를 명시하여 초기값 계산 속도 향상
-        # use_boxcox=False (기본값) 확인 및 최적화 반복 횟수 제한 시도
-        model = ExponentialSmoothing(
-            train, 
-            trend="add", 
-            seasonal="add", 
-            seasonal_periods=period,
-            initialization_method="estimated" # 최적화 경로 단축
-        ).fit(optimized=True, use_brute=False) # brute force(전수조사) 끄기
-        
-    except:
-        # 시연 중 에러 방지를 위해 간단한 설정으로 대체
-        model = ExponentialSmoothing(
-            train, 
-            trend="add", 
-            seasonal=None # 계절성이 안 맞으면 아예 끄는 게 훨씬 빠름
-        ).fit()
-
+    try: model = ExponentialSmoothing(train, trend="add", seasonal="add", seasonal_periods=period).fit()
+    except: model = ExponentialSmoothing(train, trend="add", seasonal="mul", seasonal_periods=period).fit()
     forecast = model.forecast(horizon)
-    # std() 계산 시 불필요한 연산 줄이기 위해 미리 변수화
-    std_val = train.std()
-    return forecast.values, forecast.values - std_val, forecast.values + std_val
+    return forecast.values, forecast.values - train.std(), forecast.values + train.std()
 
 def stl_forecast(train, horizon, period):
     model = STLForecast(train, ARIMA, model_kwargs={"order": (1,1,1)}, period=period)
