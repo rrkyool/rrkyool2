@@ -132,17 +132,16 @@ def get_time_span(index):
     return {"start": index.min(), "end": index.max(), "duration": index.max() - index.min()}
 
 def suggest_periods(freq):
-    # freq가 None이거나 판단 불가인 경우 대비
     if freq is None: return [1]
     
-    # 1시간 이하 (분/시간 단위) -> 일간(24), 주간(168) 주기 추천
-    if freq <= pd.Timedelta("1H"): return [24, 168]
-    # 1일 이하 (일 단위) -> 주간(7), 월간(30) 주기 추천
-    elif freq <= pd.Timedelta("1D"): return [7, 30]
-    # 7일 이하 (주 단위) -> 월간(4), 분기/연간(12) 주기 추천
-    elif freq <= pd.Timedelta("7D"): return [4, 12, 52]
-    # 31일 이하 (월 단위) -> 분기(3), 연간(12) 주기 추천
-    elif freq <= pd.Timedelta("31D"): return [12]
+    if freq <= pd.Timedelta("1H"): 
+        return [168, 24]  # 주간(168시간)을 우선순위로 하여 추세를 매끄럽게 함
+    elif freq <= pd.Timedelta("1D"): 
+        return [30, 7]    # 월간(30일)을 우선순위로 설정
+    elif freq <= pd.Timedelta("7D"): 
+        return [52, 12, 4] # 연간(52주)을 우선순위로 설정하여 선형 추세 유도
+    elif freq <= pd.Timedelta("31D"): 
+        return [12, 4]    # 연간(12개월) 우선
     return [1]
 
 def get_freq_label(freq):
@@ -381,11 +380,11 @@ if st.session_state["processed"] is not None:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("전처리 결과")
-        with st.container(border=True, height=520):
+        with st.container(border=True, height=500):
             st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
     with col2:
         st.subheader("정상성 및 통계 진단")
-        with st.container(border=True, height=520):
+        with st.container(border=True, height=500):
             # 1. 테스트 실행
             adf = run_stationarity_test(ps)
             # 백색잡음 검정 (lag=1)
@@ -457,7 +456,6 @@ if st.session_state["processed"] is not None:
 
             st.write(f"""
              ♾️ **데이터 기록 빈도**: `{freq_label}`  
-             ♾️ **분석 추천 주기**: `{period_desc}`  
             """)
 
     st.divider()
@@ -466,23 +464,29 @@ if st.session_state["processed"] is not None:
     st.subheader("시계열 분해 결과(Decomposition)")
     with st.container(border=True):
         try:
-            # 1. 데이터 분석 및 주기 설정
-            time_info = analyze_time_index(ps.index) 
-            current_period = time_info['suggested_periods'][0]
+            # 데이터 분석 및 주기 후보군 가져오기
+            time_info = analyze_time_index(ps.index)
+            periods_list = time_info['suggested_periods']
             
-            # 7일 단위 데이터인데 주기가 4(한 달)로 잡힌 경우 등 
-            # 사용자 인지를 돕기 위해 필요 길이를 명시적으로 계산
-            required_len = current_period * 2 
+            # [추가] 사용자가 주기를 직접 선택할 수 있게 하여 결과 조절권 부여
+            # 주기가 커질수록 추세(Trend)는 선형에 가까워집니다.
+            selected_period = st.selectbox(
+                "🧐 분석 주기(Period) 선택", 
+                options=periods_list,
+                format_func=lambda x: f"{x} (데이터 빈도 기준 추천)",
+                help="주기가 클수록 추세선이 매끄러워지고, 해당 마디 안에서의 반복 패턴이 계절성으로 나타납니다."
+            )
             
-            # 2. 데이터 길이 검증 (30개 등 짧은 데이터 업로드 시 대응)
+            required_len = selected_period * 2 
+            
             if len(ps) < required_len:
-                st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
-                st.info(f"💡 **팁**: 현재 설정된 주기({current_period})를 기준으로 최소 {required_len}개의 데이터가 필요합니다. 데이터를 더 추가하거나 주기를 조정해 주세요.")
+                st.warning(f"⚠️ 선택한 주기({selected_period})를 분석하기에 데이터가 부족합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
             else:
-                # 3. 시계열 분해 실행 (수정된 summarize_decomposition 연동)
-                decomp_res = decompose_series(ps, current_period)
-                summary = summarize_decomposition(decomp_res) # 표준 공식 적용된 함수 호출
-                
+                # 시계열 분해 실행 (사용자가 선택한 주기에 따라 결과가 달라짐)
+                # 선형적인 추세를 위해 모델을 가급적 'additive'로 유지하거나 데이터 특성에 따라 선택
+                decomp_res = seasonal_decompose(ps, model='additive', period=selected_period)
+                summary = summarize_decomposition(decomp_res)
+                    
                 # 상단 지표 레이아웃
                 m1, m2, m3 = st.columns([1, 1, 2])
                 m1.metric("📈 추세 강도", f"{summary['trend_strength']:.2f}")
@@ -490,8 +494,7 @@ if st.session_state["processed"] is not None:
                 with m3:
                     st.markdown("""
                     <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
-                        <small>💡 <b>지표 해석 가이드 (Hyndman 표준 공식)</b></small><br>
-                        <small>• <b>추세/계절성 강도</b>: 1에 가까울수록 잔차(노이즈) 대비 해당 패턴이 매우 뚜렷함을 의미합니다.</small>
+                        💡 <b>추세/계절성 강도</b>: 1에 가까울수록 잔차(노이즈) 대비 해당 패턴이 매우 뚜렷함을 의미합니다.
                     </div>
                     """, unsafe_allow_html=True)
                 
@@ -519,10 +522,7 @@ if st.session_state["processed"] is not None:
                 st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot_final")
                 
         except Exception as e:
-            # 예상치 못한 에러(인덱스 오류 등) 발생 시 앱이 멈추지 않게 보호
-            st.error(f"시계열 분석 실행 중 오류가 발생했습니다.")
-            with st.expander("상세 에러 내용 확인"):
-                st.write(e)
+            st.error(f"시계열 분해 중 오류 발생: {e}")
 
    # [4행] 최종 수요 예측 결과 및 분석 리포트
     if st.session_state.get("forecast_res") is not None:
