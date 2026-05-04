@@ -444,8 +444,8 @@ if st.session_state["processed"] is not None:
                 freq_str = "연 단위"
 
             st.write(f"""
-             ♾️ ** 데이터 기록 빈도**: `{freq_label}`  
-             ♾️ ** 분석 추천 주기**: `{period_desc}`  
+             ♾️ **데이터 기록 빈도**: `{freq_label}`  
+             ♾️ **분석 추천 주기**: `{period_desc}`  
             """)
 
     st.divider()
