@@ -462,55 +462,53 @@ if st.session_state["processed"] is not None:
 
     st.divider()
 
-    # [2행] 시계열 분해 (기존 시각화 유지 + 예외 처리 추가)
-    # [2행] 시계열 분해 (NameError 및 데이터 부족 오류 해결 버전)
+
     st.subheader("시계열 분해 결과(Decomposition)")
     with st.container(border=True):
-        # 1. 데이터 분석 및 주기 설정
-        # 주의: 코드 끝에 붙은 태그는 반드시 제거해야 합니다.
-        time_info = analyze_time_index(ps.index) 
-        current_period = time_info['suggested_periods'][0]
-        required_len = current_period * 2  # 분해를 위한 최소 필요 길이
-        
-        # 2. 데이터 길이 검증 (30개 등 짧은 데이터 업로드 시 대응)
-        if len(ps) < required_len:
-            st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
-            st.info("💡 팁: 더 긴 기간의 데이터를 업로드하거나, 사이드바에서 데이터 주기를 조정해 보세요.")
-        else:
-            try:
-                # 3. 시계열 분해 실행
+        try:
+            # 1. 데이터 분석 및 주기 설정
+            time_info = analyze_time_index(ps.index) 
+            current_period = time_info['suggested_periods'][0]
+            
+            # 7일 단위 데이터인데 주기가 4(한 달)로 잡힌 경우 등 
+            # 사용자 인지를 돕기 위해 필요 길이를 명시적으로 계산
+            required_len = current_period * 2 
+            
+            # 2. 데이터 길이 검증 (30개 등 짧은 데이터 업로드 시 대응)
+            if len(ps) < required_len:
+                st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
+                st.info(f"💡 **팁**: 현재 설정된 주기({current_period})를 기준으로 최소 {required_len}개의 데이터가 필요합니다. 데이터를 더 추가하거나 주기를 조정해 주세요.")
+            else:
+                # 3. 시계열 분해 실행 (수정된 summarize_decomposition 연동)
                 decomp_res = decompose_series(ps, current_period)
-                summary = summarize_decomposition(decomp_res)
+                summary = summarize_decomposition(decomp_res) # 표준 공식 적용된 함수 호출
                 
-                # 상단 지표 레이아웃 (m1, m2, m3)
+                # 상단 지표 레이아웃
                 m1, m2, m3 = st.columns([1, 1, 2])
                 m1.metric("📈 추세 강도", f"{summary['trend_strength']:.2f}")
                 m2.metric("🍂 계절성 강도", f"{summary['seasonal_strength']:.2f}")
                 with m3:
                     st.markdown("""
                     <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
-                        <small>💡 <b>지표 해석 가이드</b></small><br>
-                        <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 방향성이 뚜렷함</small><br>
-                        <small>• <b>계절성 강도</b>: 1에 가까울수록 주기적인 패턴이 강함</small>
+                        <small>💡 <b>지표 해석 가이드 (Hyndman 표준 공식)</b></small><br>
+                        <small>• <b>추세/계절성 강도</b>: 1에 가까울수록 잔차(노이즈) 대비 해당 패턴이 매우 뚜렷함을 의미합니다.</small>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 st.divider()
     
-                # 4. 차트 생성 (1행 2열 구조)
+                # 4. 차트 생성 (기존 레이아웃 유지)
                 fig_d = make_subplots(
                     rows=1, cols=2, 
                     shared_xaxes=True, 
                     subplot_titles=("📈 Original & Trend", "🍂 Seasonal & Residual")
                 )
     
-                # 데이터 트레이스 추가
                 fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
                 fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
                 fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2)
                 fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2)
     
-                # 레이아웃 최적화
                 fig_d.update_layout(
                     height=370, 
                     margin=dict(t=60, b=20, l=10, r=10),
@@ -520,8 +518,11 @@ if st.session_state["processed"] is not None:
     
                 st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot_final")
                 
-            except Exception as e:
-                st.error(f"분석 중 예기치 못한 오류가 발생했습니다: {e}")
+        except Exception as e:
+            # 예상치 못한 에러(인덱스 오류 등) 발생 시 앱이 멈추지 않게 보호
+            st.error(f"시계열 분석 실행 중 오류가 발생했습니다.")
+            with st.expander("상세 에러 내용 확인"):
+                st.write(e)
 
    # [4행] 최종 수요 예측 결과 및 분석 리포트
     if st.session_state.get("forecast_res") is not None:
