@@ -382,9 +382,19 @@ if st.session_state["processed"] is not None:
     with st.container(border=True):
         
         # 1. 데이터 분석 및 주기 설정
-        current_period = analyze_time_index(ps.index)['suggested_periods'][0]
-        decomp_res = decompose_series(ps, current_period*4)
-        summary = summarize_decomposition(decomp_res) # [cite: 60, 195]
+        time_info = analyze_time_index(ps.index)
+        current_period = time_info['suggested_periods'][0]
+        required_len = current_period * 2  # 분해를 위한 최소 필요 길이
+        
+        if len(ps) < required_len:
+            # 데이터가 부족할 경우 에러 대신 경고 메시지 출력 
+            st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
+            
+        else:
+            try:
+                # 2. 시계열 분해 실행 (주기의 2배로 안전하게 설정)
+                decomp_res = decompose_series(ps, current_period)
+            summary = summarize_decomposition(decomp_res)
         
         # 2. 지표를 차트 바로 위 상단에 가로로 배치
         # 비율을 [1, 1, 2] 정도로 두어 지표는 왼쪽에 붙고 오른쪽은 여백을 둡니다.
