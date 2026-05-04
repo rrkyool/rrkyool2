@@ -258,9 +258,21 @@ with st.sidebar:
 
             if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
+                # 원본 데이터의 빈도 파악 (예: '7D', 'W', 'D' 등)
                 data_freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') and ps.index.inferred_freq else "D"
                 
-                actual_steps = int(horizon_val)
+                # [수정 1] 사용자가 선택한 단위(time_unit)를 데이터 개수(actual_steps)로 변환
+                # 예: 데이터가 7일 단위인데 '3개월'을 선택했다면 3 * 4 = 12포인트를 예측해야 함
+                h_val = int(horizon_val)
+                if time_unit == "월":
+                    actual_steps = h_val * 4  # 1개월을 약 4주로 계산
+                elif time_unit == "주":
+                    actual_steps = h_val
+                elif time_unit == "년":
+                    actual_steps = h_val * 52 # 1년을 52주로 계산
+                else: # "일" 단위
+                    # 데이터가 7일 단위인데 21일을 입력했다면 3포인트 예측
+                    actual_steps = max(1, h_val // 7) if "D" in data_freq or "W" in data_freq else h_val
 
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
@@ -270,23 +282,18 @@ with st.sidebar:
                 st.session_state["perf_log"] = update_log(st.session_state["perf_log"], evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method))
                 st.session_state["eval_preds"][f"{model_type}_{method}"] = y_pred
                 
-                # [중요] 미래 예측 수행 및 날짜 생성
+                # 미래 예측 수행
                 time_info = analyze_time_index(ps.index)
                 st.session_state["forecast_res"] = get_forecast(ps, actual_steps, model_type, time_info['suggested_periods'][0])
-                freq_map = {
-                    "일": "D",
-                    "주": "W",
-                    "월": "M",
-                    "년": "Y"
-                }
                 
-                selected_freq = freq_map.get(time_unit, data_freq)
-                
+                # [수정 2] 날짜 생성 시 데이터의 실제 빈도(data_freq)를 유지
+                # 이렇게 해야 시각화 차트에서 시간축이 실제 데이터 흐름(7일 간격)과 일치하게 늘어납니다.
                 st.session_state["future_dates"] = pd.date_range(
                     start=ps.index[-1],
                     periods=actual_steps + 1,
-                    freq=selected_freq
+                    freq=data_freq # 사용자가 선택한 단위가 아닌 '데이터의 실제 간격' 사용
                 )[1:]
+                
                 st.session_state["current_y_pred"] = y_pred
 
             if st.button("로그 초기화", use_container_width=True):
