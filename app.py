@@ -120,11 +120,33 @@ def get_time_span(index):
     return {"start": index.min(), "end": index.max(), "duration": index.max() - index.min()}
 
 def suggest_periods(freq):
+    # freq가 None이거나 판단 불가인 경우 대비
+    if freq is None: return [1]
+    
+    # 1시간 이하 (분/시간 단위) -> 일간(24), 주간(168) 주기 추천
     if freq <= pd.Timedelta("1H"): return [24, 168]
+    # 1일 이하 (일 단위) -> 주간(7), 월간(30) 주기 추천
     elif freq <= pd.Timedelta("1D"): return [7, 30]
-    elif freq <= pd.Timedelta("7D"): return [4, 12]
+    # 7일 이하 (주 단위) -> 월간(4), 분기/연간(12) 주기 추천
+    elif freq <= pd.Timedelta("7D"): return [4, 12, 52]
+    # 31일 이하 (월 단위) -> 분기(3), 연간(12) 주기 추천
     elif freq <= pd.Timedelta("31D"): return [12]
     return [1]
+
+def get_freq_label(freq):
+    """Timedelta 빈도를 사용자가 이해하기 쉬운 한글 텍스트로 변환"""
+    if freq is None: return "판단 불가"
+    days = freq.days
+    hours = freq.components.hours
+    
+    if days == 7: return "7일(1주일) 단위"
+    if days == 1: return "1일(Daily) 단위"
+    if days >= 28 and days <= 31: return "1개월(Monthly) 단위"
+    if hours == 1: return "1시간 단위"
+    
+    # 그 외의 경우
+    if days > 0: return f"{days}일 단위"
+    return f"{hours}시간 단위"
 
 def analyze_time_index(index):
     freq = infer_frequency(index)
@@ -342,6 +364,8 @@ if st.session_state["processed"] is not None:
             c3.metric(f"자기상관 (lag={current_period})", f"{ac_test['p_value']:.4f}", 
                       "모델개선 가능" if has_ac else "개선 불가")
             time_info = analyze_time_index(ps.index)
+            freq_label = get_freq_label(time_info['frequency']) # 한글 라벨 생성
+            suggested_p = time_info['suggested_periods'][0]
            
             # ADF 검정 결과에 따른 차분 가이드
             if adf['is_stationary']:
@@ -379,8 +403,8 @@ if st.session_state["processed"] is not None:
                 freq_str = "연 단위"
 
             st.write(f"""
-            🔄 추정 주기: `{time_info['suggested_periods'][0]}`
-            📏 데이터 빈도: `{freq_str}`
+            📏 **데이터 기록 빈도**: `{freq_label}`  
+            🔄 **분석 추천 주기**: `{suggested_p}` 
             """)
 
     st.divider()
