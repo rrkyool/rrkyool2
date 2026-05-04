@@ -70,7 +70,7 @@ def plot_preprocessing(raw, processed):
     
     # 사이즈 및 여백 조정
     fig.update_layout(
-        height=300,  # 기존보다 작게 조정 (원하는 수치로 변경 가능)
+        height=280,  # 기존보다 작게 조정 (원하는 수치로 변경 가능)
         margin=dict(l=10, r=10, t=30, b=10),  # 상하좌우 여백 최소화 [cite: 96, 161]
         legend=dict(
             orientation="h",     # 범례를 가로로 배치 
@@ -414,7 +414,8 @@ if st.session_state["processed"] is not None:
         with st.container(border=True, height=500):
             st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
             st.divider()
-            st.markdown("결측치 대체: Interpolate               이상치 대체: Hample Filter")
+            st.markdown("결측치 대체: Interpolate")
+            st.markdown("이상치 대체: Hample Filter")
             st.markdown("Denoising: savgol_filter")
             
     with col2:
