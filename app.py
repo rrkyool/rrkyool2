@@ -378,69 +378,65 @@ if st.session_state["processed"] is not None:
 
     st.divider()
 
+    # [2행] 시계열 분해 (기존 시각화 유지 + 예외 처리 추가)
     st.subheader("시계열 분해 결과(Decomposition)")
     with st.container(border=True):
-        
         # 1. 데이터 분석 및 주기 설정
-        time_info = analyze_time_index(ps.index)
-        current_period = time_info['suggested_periods'][0]
-        required_len = current_period * 2  # 분해를 위한 최소 필요 길이
-        
+        time_info = analyze_time_index(ps.index) [cite: 145, 210]
+        current_period = time_info['suggested_periods'][0] [cite: 145, 210]
+        required_len = current_period * 2  # seasonal_decompose 수행을 위한 최소 필요 길이 
+    
+        # --- 데이터 길이 검증 로직 추가 ---
         if len(ps) < required_len:
-            # 데이터가 부족할 경우 에러 대신 경고 메시지 출력 
-            st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)")
-            
+            st.warning(f"⚠️ 데이터 길이가 너무 짧아 시계열 분해가 불가합니다. (현재: {len(ps)}개, 최소 필요: {required_len}개)") [cite: 7, 206]
+            st.info("💡 팁: 더 긴 기간의 데이터를 업로드하거나, 분석 주기를 조정해 보세요.")
         else:
             try:
-                # 2. 시계열 분해 실행 (주기의 2배로 안전하게 설정)
-                decomp_res = decompose_series(ps, current_period)
-            summary = summarize_decomposition(decomp_res)
-        
-        # 2. 지표를 차트 바로 위 상단에 가로로 배치
-        # 비율을 [1, 1, 2] 정도로 두어 지표는 왼쪽에 붙고 오른쪽은 여백을 둡니다.
-        m1, m2, m3 = st.columns([1, 1, 2])
-        m1.metric("📈 추세 강도", summary['trend_strength'])
-        m2.metric("🍂 계절성 강도", summary['seasonal_strength'])
-        with m3:
-            st.markdown("""
-            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
-                <small>💡 <b>지표 해석 가이드</b></small><br>
-                <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 상승/하락 경향이 뚜렷함을 의미</small><br>
-                <small>• <b>계절성 강도</b>: 1에 가까울수록 특정 주기(일/주/월 등)마다 반복되는 패턴이 강함을 의미</small>
-            </div>
-            """, unsafe_allow_html=True)
-        st.divider() # 지표와 차트 사이 시각적 구분선
+                # 2. 시계열 분해 및 지표 산출
+                decomp_res = decompose_series(ps, current_period) [cite: 7, 206]
+                summary = summarize_decomposition(decomp_res) [cite: 8, 208]
     
-        # 3. 차트 생성 (전체 너비 사용)
-        fig_d = make_subplots(
-            rows=1, cols=2, 
-            shared_xaxes=True, 
-            vertical_spacing=0.15, 
-            subplot_titles=("📈 Original & Trend", "🍂 Seasonal & Residual")
-        )
-        
-        # 데이터 트레이스 추가 (기존 로직 유지)
-        fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1)
-        fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1)
-        fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2)
-        fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2)
-        
-        # --- 레이아웃 최적화 (높이 축소 및 범례 위치 조정) ---
-        fig_d.update_layout(
-            height=370,  # 기존 550의 약 2/3 크기로 조정
-            margin=dict(t=60, b=20, l=10, r=10), # 상단 여백을 살짝 늘려 범례 공간 확보
-            showlegend=True,
-            legend=dict(
-                orientation="h", 
-                yanchor="bottom", 
-                y=1.1,   # 그래프 및 서브플롯 제목 위로 더 올림
-                xanchor="right", 
-                x=1
-            )
-        )
-        
-        # 차트를 컨테이너 전체 너비로 출력
-        st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot")
+                # 상단 지표 레이아웃 (m1, m2, m3)
+                m1, m2, m3 = st.columns([1, 1, 2])
+                m1.metric("📈 추세 강도", summary['trend_strength'])
+                m2.metric("🍂 계절성 강도", summary['seasonal_strength'])
+                with m3:
+                    st.markdown("""
+                    <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
+                        <small>💡 <b>지표 해석 가이드</b></small><br>
+                        <small>• <b>추세 강도</b>: 1에 가까울수록 장기적인 상승/하락 경향이 뚜렷함</small><br>
+                        <small>• <b>계절성 강도</b>: 1에 가까울수록 주기적인 패턴이 강함</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.divider()
+    
+                # 3. 차트 생성 (요청하신 1행 2열 구조 유지)
+                fig_d = make_subplots(
+                    rows=1, cols=2, 
+                    shared_xaxes=True, 
+                    vertical_spacing=0.15, 
+                    subplot_titles=("📈 Original & Trend", "🍂 Seasonal & Residual")
+                ) [cite: 7, 141, 206]
+    
+                # 데이터 트레이스 (기존 로직)
+                fig_d.add_trace(go.Scatter(y=decomp_res.observed, name="Original", opacity=0.4, line=dict(color="gray")), row=1, col=1) [cite: 8, 142, 207]
+                fig_d.add_trace(go.Scatter(y=decomp_res.trend, name="Trend", line=dict(color="#1f77b4", width=3)), row=1, col=1) [cite: 8, 142, 207]
+                fig_d.add_trace(go.Scatter(y=decomp_res.seasonal, name="Seasonal", line=dict(color="#2ca02c")), row=1, col=2) [cite: 8, 142, 207]
+                fig_d.add_trace(go.Scatter(y=decomp_res.resid, name="Residual", mode='markers', marker=dict(size=4, color="#ff7f0e")), row=1, col=2) [cite: 8, 142, 207]
+    
+                # 레이아웃 최적화
+                fig_d.update_layout(
+                    height=370, 
+                    margin=dict(t=60, b=20, l=10, r=10),
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1)
+                ) [cite: 8, 143, 208]
+    
+                st.plotly_chart(fig_d, use_container_width=True, key="decomp_plot")
+                
+            except Exception as e:
+                st.error(f"분석 중 오류 발생: {e}")
 
    # [4행] 최종 수요 예측 결과 및 분석 리포트
     if st.session_state.get("forecast_res") is not None:
