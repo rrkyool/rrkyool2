@@ -334,11 +334,11 @@ if st.session_state["processed"] is not None:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("전처리 결과")
-        with st.container(border=True, height=550):
+        with st.container(border=True, height=520):
             st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
     with col2:
         st.subheader("정상성 및 통계 진단")
-        with st.container(border=True, height=550):
+        with st.container(border=True, height=520):
             # 1. 테스트 실행
             adf = run_stationarity_test(ps)
             # 백색잡음 검정 (lag=1)
