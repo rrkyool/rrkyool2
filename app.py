@@ -379,7 +379,7 @@ with st.sidebar:
                 # 평가용 예측 및 로그 업데이트
                 y_pred = rolling_forecast_fast(train_p, test_p, model_type) if method == "Rolling" else block_forecast(train_p, test_p, model_type, actual_steps)
                 st.session_state["perf_log"] = update_log(st.session_state["perf_log"], evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method))
-                st.session_state["eval_preds"][f"{model_type}"] = y_pred
+                st.session_state["eval_preds"][f"{model_type}_{method}"] = y_pred
                 
                 # 미래 예측 수행
                 time_info = analyze_time_index(ps.index)
