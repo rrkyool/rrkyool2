@@ -514,12 +514,6 @@ if st.session_state["processed"] is not None:
             m1, m2, m3 = st.columns([1, 1, 2])
             m1.metric("📈 추세 강도", f"{summary['trend_strength']:.2f}")
             m2.metric("🍂 계절성 강도", f"{summary['seasonal_strength']:.2f}")
-            with m3:
-                st.markdown("""
-                <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; line-height: 1.4;">
-                    💡 <b>추세/계절성 강도</b>: 1에 가까울수록 잔차(노이즈) 대비 해당 패턴이 매우 뚜렷함을 의미합니다.
-                </div>
-                """, unsafe_allow_html=True)
             
             st.divider()
 
