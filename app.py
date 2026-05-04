@@ -539,7 +539,7 @@ if st.session_state["processed"] is not None:
                         "상한": f_res['upper']
                     }), 
                     use_container_width=True, 
-                    height=250
+                    height=350
                 )
         
         # [5행] 성능 평가 및 모델 검증 (오류 수정 핵심 영역)
