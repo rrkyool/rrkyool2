@@ -70,7 +70,7 @@ def plot_preprocessing(raw, processed):
     
     # 사이즈 및 여백 조정
     fig.update_layout(
-        height=280,  # 기존보다 작게 조정 (원하는 수치로 변경 가능)
+        height=270,  # 기존보다 작게 조정 (원하는 수치로 변경 가능)
         margin=dict(l=10, r=10, t=30, b=10),  # 상하좌우 여백 최소화 [cite: 96, 161]
         legend=dict(
             orientation="h",     # 범례를 가로로 배치 
