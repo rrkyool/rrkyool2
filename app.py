@@ -413,6 +413,11 @@ if st.session_state["processed"] is not None:
         st.subheader("전처리 결과")
         with st.container(border=True, height=500):
             st.plotly_chart(plot_preprocessing(raw, ps), use_container_width=True)
+            st.divider()
+            st.markdown("결측치 대체: Interpolate")
+            st.markdown("이상치 대체: Hample Filter")
+            st.markdown("Denoising: savgol_filter")
+            
     with col2:
         st.subheader("정상성 및 통계 진단")
         with st.container(border=True, height=500):
