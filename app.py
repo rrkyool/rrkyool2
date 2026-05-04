@@ -524,6 +524,11 @@ if st.session_state["processed"] is not None:
                 if not st.session_state["perf_log"].empty:
                     # 1. 전체 로그 데이터 표시
                     df_log = st.session_state["perf_log"]
+                    if st.session_state.get("forecast_res") is not None:
+                        current_forecast_mean = np.mean(st.session_state["forecast_res"]['mean'])
+                        # 가장 마지막(최신) 행의 '예측평균' 컬럼 값을 업데이트
+                        df_log.iloc[-1, df_log.columns.get_loc('예측평균')] = round(current_forecast_mean, 2)
+                        
                     st.dataframe(df_log, use_container_width=True)
                     
                     # 2. 지표별 Best 모델 산출 로직
