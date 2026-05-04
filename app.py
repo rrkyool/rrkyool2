@@ -183,22 +183,6 @@ def get_period_unit_text(freq, period):
         
     return f"{period}개 마디"
 
-# --- 대시보드 출력 부분 적용 ---
-time_info = analyze_time_index(ps.index)
-freq_obj = time_info['frequency']
-suggested_p = time_info['suggested_periods'][0]
-
-# 주기 설명 텍스트 생성 (예: "4주 (약 1개월)")
-period_desc = get_period_unit_text(freq_obj, suggested_p)
-# 데이터 빈도 텍스트 (예: "7일(1주일) 단위")
-freq_label = get_freq_label(freq_obj) 
-
-st.write(f"""
-    📏 **데이터 기록 빈도**: `{freq_label}`  
-    🔄 **분석 추천 주기**: `{period_desc}`  
-    *(현재 데이터가 `{suggested_p}`개 모일 때 하나의 반복 패턴이 형성된다고 가정합니다.)*
-    """)
-
 def analyze_time_index(index):
     freq = infer_frequency(index)
     span = get_time_span(index)
