@@ -94,9 +94,19 @@ def run_stationarity_test(series):
 
 def run_ljungbox_test(series, lags=12):
     series = series.dropna()
-    result = acorr_ljungbox(series, lags=[lags], return_df=True)
-    p_value = result['lb_pvalue'].iloc[0]
-    return {"p_value": p_value, "has_autocorrelation": p_value < 0.05}
+    
+    actual_lags = min(lags, len(series) - 1)
+    
+    if actual_lags <= 0:
+        return {"p_value": np.nan, "has_autocorrelation": False, "status": "데이터 부족"}
+
+    try:
+        # return_df=True 일 때 lags 값을 리스트로 명시
+        result = acorr_ljungbox(series, lags=[actual_lags], return_df=True)
+        p_value = result['lb_pvalue'].iloc[0]
+        return {"p_value": p_value, "has_autocorrelation": p_value < 0.05, "status": "OK"}
+    except:
+        return {"p_value": np.nan, "has_autocorrelation": False, "status": "연산 오류"}
 
 # -----------------------------
 # 4. 분해
