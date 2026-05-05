@@ -267,20 +267,30 @@ def stl_forecast(train, horizon, period):
     return forecast.values, (forecast - 1.96*resid_std).values, (forecast + 1.96*resid_std).values
 
 def arima_forecast(train, horizon, period, seasonal):
-    # 데이터 길이가 주기보다 짧으면 강제로 계절성 끎 (에러 방지)
+    # [수정] 데이터 길이가 주기보다 충분히 길지 않으면 자동으로 계절성 해제
+    # 통계적으로 최소 2주기 이상의 데이터가 있어야 안정적입니다.
     if len(train) < period * 2:
         seasonal = False
         
-    model = auto_arima(train, 
-                       seasonal=seasonal, 
-                       m=period if seasonal else 1, 
-                       stepwise=True, 
-                       suppress_warnings=True, 
-                       error_action="ignore",
-                       max_p=2, max_q=2, # 검색 범위 제한으로 속도 향상
-                       trace=False)
-    forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
-    return forecast, conf_int[:,0], conf_int[:,1]
+    try:
+        model = auto_arima(train, 
+                           seasonal=seasonal, 
+                           m=period if seasonal else 1, 
+                           stepwise=True, 
+                           suppress_warnings=True, 
+                           error_action="ignore",
+                           # [추가] 수치적 안정성을 위해 제약조건 완화
+                           enforce_stationarity=False,
+                           enforce_invertibility=False,
+                           max_p=2, max_q=2, 
+                           trace=False)
+        forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
+        return forecast, conf_int[:,0], conf_int[:,1]
+    except Exception as e:
+        # [추가] auto_arima 자체가 실패할 경우를 대비한 최후의 보루
+        st.error(f"SARIMA 모델 구성 실패(데이터 부족 혹은 수치 오류): {e}")
+        mean = np.repeat(train.iloc[-1], horizon)
+        return mean, mean * 0.9, mean * 1.1
 
 def get_forecast(train, horizon, model_type, period=12):
     train = pd.Series(train).astype(float).dropna()
@@ -299,34 +309,34 @@ def get_forecast(train, horizon, model_type, period=12):
     return {"mean": mean, "lower": lower, "upper": upper, "trend_slope": slope}
 
 def rolling_forecast_fast(train, test, model_type, period=12):
-    # list(train)으로 변환하지 않고 Series 형태를 유지해야 빈도(freq)가 보존됩니다.
     history = train.copy()
     preds = []
     
     if model_type in ["ARIMA", "SARIMA"]:
         try:
+            # 초기 모델 피팅
             if model_type == "ARIMA":
                 model_res = ARIMA(history, order=(1,1,1)).fit()
             else:
-                # 하드코딩된 12를 period로 변경하고, 수치적 안정성을 위해 enforce 옵션 조정
+                # [수정] 주기가 1이면 계절성 없이 ARIMA로 동작하게 방어
+                s_order = (1,1,1, period) if period > 1 and len(history) >= period*2 else (0,0,0,0)
                 model_res = SARIMAX(history, 
                                     order=(1,1,1), 
-                                    seasonal_order=(1,1,1, period),
+                                    seasonal_order=s_order,
                                     enforce_stationarity=False,
                                     enforce_invertibility=False).fit(disp=False)
             
             for t in range(len(test)):
                 yhat = model_res.forecast(steps=1).iloc[0]
                 preds.append(yhat)
-                # append 시에도 Series 형태를 유지
-                new_obs = test.iloc[[t]]
+                # [수정] 데이터 추가 시 빈도 정보가 유실되지 않도록 index와 함께 전달
+                new_obs = pd.Series([test.iloc[t]], index=[test.index[t]])
                 model_res = model_res.append(new_obs, refit=False)
         except Exception as e:
-            # 모델 fitting 실패 시 직전 값으로 채우는 안전장치
-            st.warning(f"SARIMA 최적화 실패로 인한 대체 연산 실행: {e}")
+            st.warning(f"SARIMA 연산 중 오류 발생: {e}. 마지막 값으로 대체합니다.")
             preds = np.repeat(history.iloc[-1], len(test))
     else:
-        # 기존 MA, ES 등 다른 모델 로직
+        # MA, ES 등은 빈도 정보에 덜 민감하므로 기존 로직 유지
         history_list = list(train)
         for t in range(len(test)):
             yhat = get_forecast(pd.Series(history_list), 1, model_type, period)["mean"][0]
