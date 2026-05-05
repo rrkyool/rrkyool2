@@ -259,12 +259,36 @@ def hw_forecast(train, horizon, period):
     forecast = model.forecast(horizon)
     return forecast.values, forecast.values - train.std(), forecast.values + train.std()
 
+from statsmodels.tsa.forecasting.stl import STLForecast
+from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+
 def stl_forecast(train, horizon, period):
-    model = STLForecast(train, ARIMA, model_kwargs={"order": (1,1,1)}, period=period)
-    res = model.fit()
-    forecast = res.forecast(horizon)
-    resid_std = np.std(res.resid)
-    return forecast.values, (forecast - 1.96*resid_std).values, (forecast + 1.96*resid_std).values
+    # 속도를 위해 복잡한 ARIMA 대신 계절성을 잘 타는 ETS 모델을 내부 모델로 사용합니다.
+    # 만약 ARIMA를 고집한다면 order=(1,1,1)보다는 seasonal=True 설정이 필요하지만,
+    # STL 분해 후 예측에는 ETS가 속도와 패턴 유지 측면에서 시연에 더 유리합니다.
+    try:
+        model = STLForecast(
+            train, 
+            ETSModel, 
+            model_kwargs={"error": "add", "trend": "add", "seasonal": None}, 
+            period=period
+        )
+        res = model.fit()
+        forecast_res = res.get_prediction(start=len(train), end=len(train) + horizon - 1)
+        
+        # 결과 추출
+        mean = forecast_res.predicted_mean
+        conf = forecast_res.conf_int(alpha=0.05) # 95% 신뢰구간
+        
+        return mean.values, conf.iloc[:, 0].values, conf.iloc[:, 1].values
+        
+    except:
+        # 에러 발생 시(데이터 특성 등) 가장 빠른 단순 모델로 방어
+        model = STLForecast(train, ARIMA, model_kwargs={"order": (1,1,0)}, period=period)
+        res = model.fit()
+        forecast = res.forecast(horizon)
+        std = np.std(res.resid)
+        return forecast.values, (forecast - 1.96*std).values, (forecast + 1.96*std).values
 
 def arima_forecast(train, horizon, period, seasonal):
     # 데이터 부족 시 계절성 해제 로직
