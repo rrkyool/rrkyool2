@@ -267,28 +267,35 @@ def stl_forecast(train, horizon, period):
     return forecast.values, (forecast - 1.96*resid_std).values, (forecast + 1.96*resid_std).values
 
 def arima_forecast(train, horizon, period, seasonal):
-    # [수정] 데이터 길이가 주기보다 충분히 길지 않으면 자동으로 계절성 해제
-    # 통계적으로 최소 2주기 이상의 데이터가 있어야 안정적입니다.
+    # 데이터가 부족하면 강제로 계절성 끄기
     if len(train) < period * 2:
         seasonal = False
-        
+    
+    # [수정] 모델 타입에 따른 차등 설정
+    if not seasonal:
+        # 일반 ARIMA: 성능을 위해 검색 범위를 넓게 가져감
+        max_p, max_q = 3, 3 
+        approximation = False
+    else:
+        # SARIMA: 안정성을 위해 범위를 좁히고 근사치 사용
+        max_p, max_q = 1, 1
+        approximation = True
+
     try:
         model = auto_arima(train, 
                            seasonal=seasonal, 
                            m=period if seasonal else 1, 
-                           stepwise=True, 
+                           stepwise=True,
+                           approximation=approximation, # ARIMA는 정밀하게, SARIMA는 빠르게
+                           max_p=max_p, max_q=max_q, 
+                           max_P=1, max_Q=1, # 계절성 차수도 최소화
                            suppress_warnings=True, 
                            error_action="ignore",
-                           # [추가] 수치적 안정성을 위해 제약조건 완화
                            enforce_stationarity=False,
-                           enforce_invertibility=False,
-                           max_p=2, max_q=2, 
-                           trace=False)
+                           enforce_invertibility=False)
         forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
         return forecast, conf_int[:,0], conf_int[:,1]
-    except Exception as e:
-        # [추가] auto_arima 자체가 실패할 경우를 대비한 최후의 보루
-        st.error(f"SARIMA 모델 구성 실패(데이터 부족 혹은 수치 오류): {e}")
+    except:
         mean = np.repeat(train.iloc[-1], horizon)
         return mean, mean * 0.9, mean * 1.1
 
