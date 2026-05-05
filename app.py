@@ -267,7 +267,18 @@ def stl_forecast(train, horizon, period):
     return forecast.values, (forecast - 1.96*resid_std).values, (forecast + 1.96*resid_std).values
 
 def arima_forecast(train, horizon, period, seasonal):
-    model = auto_arima(train, seasonal=seasonal, m=period if seasonal else 1, stepwise=True, suppress_warnings=True, error_action="ignore")
+    # 데이터 길이가 주기보다 짧으면 강제로 계절성 끎 (에러 방지)
+    if len(train) < period * 2:
+        seasonal = False
+        
+    model = auto_arima(train, 
+                       seasonal=seasonal, 
+                       m=period if seasonal else 1, 
+                       stepwise=True, 
+                       suppress_warnings=True, 
+                       error_action="ignore",
+                       max_p=2, max_q=2, # 검색 범위 제한으로 속도 향상
+                       trace=False)
     forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
     return forecast, conf_int[:,0], conf_int[:,1]
 
@@ -287,29 +298,56 @@ def get_forecast(train, horizon, model_type, period=12):
         lower, upper = mean * 0.9, mean * 1.1
     return {"mean": mean, "lower": lower, "upper": upper, "trend_slope": slope}
 
-def rolling_forecast_fast(train, test, model_type):
-    history = list(train)
+def rolling_forecast_fast(train, test, model_type, period=12):
+    # list(train)으로 변환하지 않고 Series 형태를 유지해야 빈도(freq)가 보존됩니다.
+    history = train.copy()
     preds = []
+    
     if model_type in ["ARIMA", "SARIMA"]:
-        if model_type == "ARIMA": model = ARIMA(history, order=(1,1,1)).fit()
-        else: model = SARIMAX(history, order=(1,1,1), seasonal_order=(1,1,1,12)).fit(disp=False)
-        for t in range(len(test)):
-            yhat = model.forecast(steps=1)[0]
-            preds.append(yhat)
-            model = model.append([test.iloc[t]], refit=False)
+        try:
+            if model_type == "ARIMA":
+                model_res = ARIMA(history, order=(1,1,1)).fit()
+            else:
+                # 하드코딩된 12를 period로 변경하고, 수치적 안정성을 위해 enforce 옵션 조정
+                model_res = SARIMAX(history, 
+                                    order=(1,1,1), 
+                                    seasonal_order=(1,1,1, period),
+                                    enforce_stationarity=False,
+                                    enforce_invertibility=False).fit(disp=False)
+            
+            for t in range(len(test)):
+                yhat = model_res.forecast(steps=1).iloc[0]
+                preds.append(yhat)
+                # append 시에도 Series 형태를 유지
+                new_obs = test.iloc[[t]]
+                model_res = model_res.append(new_obs, refit=False)
+        except Exception as e:
+            # 모델 fitting 실패 시 직전 값으로 채우는 안전장치
+            st.warning(f"SARIMA 최적화 실패로 인한 대체 연산 실행: {e}")
+            preds = np.repeat(history.iloc[-1], len(test))
     else:
+        # 기존 MA, ES 등 다른 모델 로직
+        history_list = list(train)
         for t in range(len(test)):
-            yhat = get_forecast(pd.Series(history), 1, model_type)["mean"][0]
+            yhat = get_forecast(pd.Series(history_list), 1, model_type, period)["mean"][0]
             preds.append(yhat)
-            history.append(test.iloc[t])
+            history_list.append(test.iloc[t])
+            
     return np.array(preds)
 
-def block_forecast(train, test, model_type, horizon=12):
+def block_forecast(train, test, model_type, horizon=12, period=12):
     preds = []
     for i in range(0, len(test), horizon):
+        # 1. 이전까지의 데이터를 합쳐 학습 데이터 구성
         hist = pd.concat([train, test[:i]])
-        result = get_forecast(hist, horizon, model_type)
+        
+        # 2. [수정] get_forecast 호출 시 파라미터로 받은 period를 명시적으로 전달
+        # 이 부분이 수정되어야 SARIMA 모델이 주기를 인식합니다.
+        result = get_forecast(hist, horizon, model_type, period=period)
+        
+        # 3. 예측값 저장
         preds.extend(result["mean"][:min(horizon, len(test)-i)])
+        
     return np.array(preds)
 
 def mae(y, yhat): return np.mean(np.abs(np.array(y) - np.array(yhat)))
@@ -379,40 +417,41 @@ with st.sidebar:
 
             if st.button("수요 예측 실행", use_container_width=True, type="primary"):
                 ps = st.session_state["processed"]
-                # 원본 데이터의 빈도 파악 (예: '7D', 'W', 'D' 등)
                 data_freq = ps.index.inferred_freq if hasattr(ps.index, 'inferred_freq') and ps.index.inferred_freq else "D"
                 
-                # [수정 1] 사용자가 선택한 단위(time_unit)를 데이터 개수(actual_steps)로 변환
-                # 예: 데이터가 7일 단위인데 '3개월'을 선택했다면 3 * 4 = 12포인트를 예측해야 함
                 h_val = int(horizon_val)
                 if time_unit == "월":
-                    actual_steps = h_val * 4  # 1개월을 약 4주로 계산
+                    actual_steps = h_val * 4
                 elif time_unit == "주":
                     actual_steps = h_val
                 elif time_unit == "년":
-                    actual_steps = h_val * 52 # 1년을 52주로 계산
-                else: # "일" 단위
-                    # 데이터가 7일 단위인데 21일을 입력했다면 3포인트 예측
-                    actual_steps = max(1, h_val // 7) if "D" in data_freq or "W" in data_freq else h_val
-
+                    actual_steps = h_val * 52
+                else: 
+                    actual_steps = max(1, h_val // 7) if ("D" in data_freq or "W" in data_freq) else h_val
+            
                 split_idx = int(len(ps) * 0.8)
                 train_p, test_p = ps.iloc[:split_idx], ps.iloc[split_idx:]
                 
-                # 평가용 예측 및 로그 업데이트
-                y_pred = rolling_forecast_fast(train_p, test_p, model_type) if method == "Rolling" else block_forecast(train_p, test_p, model_type, actual_steps)
+                time_info = analyze_time_index(ps.index)
+                current_p = time_info['suggested_periods'][0]
+                
+                # [수정] Block 방식에서도 period를 전달하도록 보강
+                if method == "Rolling":
+                    y_pred = rolling_forecast_fast(train_p, test_p, model_type, period=current_p)
+                else:
+                    y_pred = block_forecast(train_p, test_p, model_type, actual_steps, period=current_p)
+                    
                 st.session_state["perf_log"] = update_log(st.session_state["perf_log"], evaluate_metrics(test_p[:len(y_pred)], y_pred, model_type, method))
                 st.session_state["eval_preds"][f"{model_type}_{method}"] = y_pred
                 
                 # 미래 예측 수행
-                time_info = analyze_time_index(ps.index)
-                st.session_state["forecast_res"] = get_forecast(ps, actual_steps, model_type, time_info['suggested_periods'][0])
+                st.session_state["forecast_res"] = get_forecast(ps, actual_steps, model_type, current_p)
                 
-                # [수정 2] 날짜 생성 시 데이터의 실제 빈도(data_freq)를 유지
-                # 이렇게 해야 시각화 차트에서 시간축이 실제 데이터 흐름(7일 간격)과 일치하게 늘어납니다.
+                # 날짜 생성
                 st.session_state["future_dates"] = pd.date_range(
                     start=ps.index[-1],
                     periods=actual_steps + 1,
-                    freq=data_freq # 사용자가 선택한 단위가 아닌 '데이터의 실제 간격' 사용
+                    freq=data_freq
                 )[1:]
                 
                 st.session_state["current_y_pred"] = y_pred
