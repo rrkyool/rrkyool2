@@ -524,7 +524,7 @@ if st.session_state["processed"] is not None:
             st.divider()
             st.markdown("결측치 대체: Interpolate")
             st.markdown("이상치 대체: Hample Filter")
-            st.markdown("Denoising: savgol_filter")
+            st.markdown("디노이징: Savitzky-Golay filter")
             
     with col2:
         st.subheader("정상성 및 통계 진단")
