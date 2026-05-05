@@ -351,21 +351,19 @@ with st.sidebar:
         file = st.file_uploader("CSV 파일 업로드", type=["csv"])
         if file:
             df = load_data(file)
-            # 1. 날짜형 변환 및 인덱스 설정
             df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0])
             df = df.sort_values(df.columns[0]).set_index(df.columns[0])
             
-            # [핵심 수정] 빈도(Frequency) 명시화 로직 추가
-            # statsmodels는 인덱스에 빈도가 없으면 매번 추론을 시도하며 경고를 띄웁니다.
+            # 1. 빈도(Frequency) 설정
             inferred_freq = pd.infer_freq(df.index)
             if inferred_freq:
                 df = df.asfreq(inferred_freq)
             else:
-                # 추론이 안 될 경우 가장 빈번한 간격을 찾아 강제 설정 (예: W-SUN)
                 df = df.asfreq('W-SUN') 
             
-            # 결측치 처리 (asfreq 이후 발생할 수 있는 구멍 메우기)
-            df = df.fillna(method='ffill')
+            # 2. 결측치 처리 (ffill 대신 interpolate 적용)
+            # limit_direction='both'를 사용해야 데이터 맨 앞이나 뒤의 결측치까지 완벽히 채워집니다.
+            df = df.interpolate(method='linear', limit_direction='both') 
             
             st.session_state["df"] = df
             if st.session_state["processed"] is None:
