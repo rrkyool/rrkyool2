@@ -149,7 +149,7 @@ def suggest_periods(freq):
     elif freq <= pd.Timedelta("1D"): 
         return [30, 7]    # 월간(30일)을 우선순위로 설정
     elif freq <= pd.Timedelta("7D"): 
-        return [52, 12, 4] # 연간(52주)을 우선순위로 설정하여 선형 추세 유도
+        return [13, 12, 4] # 연간(52주)을 우선순위로 설정하여 선형 추세 유도
     elif freq <= pd.Timedelta("31D"): 
         return [12, 4]    # 연간(12개월) 우선
     return [1]
