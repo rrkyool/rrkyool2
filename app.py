@@ -267,35 +267,41 @@ def stl_forecast(train, horizon, period):
     return forecast.values, (forecast - 1.96*resid_std).values, (forecast + 1.96*resid_std).values
 
 def arima_forecast(train, horizon, period, seasonal):
-    # 데이터가 부족하면 강제로 계절성 끄기
+    # 데이터 부족 시 계절성 해제 로직
     if len(train) < period * 2:
         seasonal = False
     
-    # [수정] 모델 타입에 따른 차등 설정
     if not seasonal:
-        # 일반 ARIMA: 성능을 위해 검색 범위를 넓게 가져감
-        max_p, max_q = 3, 3 
-        approximation = False
+        # 1. ARIMA (기존 성능 유지)
+        max_p, max_q = 3, 3      # 원래의 넓은 검색 범위 유지
+        d_val = None             # 최적 차분 자동 탐색
+        approximation = False    # 정밀한 연산
     else:
-        # SARIMA: 안정성을 위해 범위를 좁히고 근사치 사용
-        max_p, max_q = 1, 1
-        approximation = True
+        # 2. SARIMA (안정성 및 직선 방지 최적화)
+        max_p, max_q = 1, 1      # 무한 로딩 방지를 위해 범위 제한
+        d_val = 1                # 강제 1차 차분으로 수평선(Level) 현상 방지
+        approximation = True     # 연산 속도 확보 (Oh No 화면 방지)
 
     try:
         model = auto_arima(train, 
                            seasonal=seasonal, 
                            m=period if seasonal else 1, 
+                           d=d_val,               # SARIMA일 때 강제 차분 적용
                            stepwise=True,
-                           approximation=approximation, # ARIMA는 정밀하게, SARIMA는 빠르게
+                           approximation=approximation,
                            max_p=max_p, max_q=max_q, 
-                           max_P=1, max_Q=1, # 계절성 차수도 최소화
+                           max_P=1, max_Q=1, 
+                           start_p=1, start_q=1, 
                            suppress_warnings=True, 
                            error_action="ignore",
                            enforce_stationarity=False,
                            enforce_invertibility=False)
+        
         forecast, conf_int = model.predict(n_periods=horizon, return_conf_int=True)
         return forecast, conf_int[:,0], conf_int[:,1]
-    except:
+    except Exception as e:
+        # 실패 시 최후의 수단
+        st.error(f"모델 연산 오류: {e}")
         mean = np.repeat(train.iloc[-1], horizon)
         return mean, mean * 0.9, mean * 1.1
 
