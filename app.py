@@ -436,23 +436,31 @@ with st.sidebar:
         file = st.file_uploader("CSV 파일 업로드", type=["csv"])
         if file:
             df = load_data(file)
-            df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0])
-            df = df.sort_values(df.columns[0]).set_index(df.columns[0])
             
-            # 1. 빈도(Frequency) 설정
+            # 1. 날짜 컬럼 인덱스 설정
+            df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0])
+            df = df.set_index(df.columns[0])
+            
+            # [핵심 수정] 2. 중복 인덱스 제거 (Duplicate Labels 해결)
+            # 중복된 날짜가 있다면 첫 번째 데이터만 남깁니다.
+            if not df.index.is_unique:
+                st.warning("⚠️ 데이터에 중복된 날짜가 발견되어 첫 번째 기록을 기준으로 통합했습니다.")
+                df = df[~df.index.duplicated(keep='first')]
+            
+            # 3. 데이터 빈도 정렬 및 강제 할당 (추론 안정화)
+            df = df.sort_index()
             inferred_freq = pd.infer_freq(df.index)
             if inferred_freq:
-                df = df.asfreq(inferred_freq)
-            else:
-                df = df.asfreq('W-SUN') 
-            
-            # 2. 결측치 처리 (ffill 대신 interpolate 적용)
-            # limit_direction='both'를 사용해야 데이터 맨 앞이나 뒤의 결측치까지 완벽히 채워집니다.
-            df = df.interpolate(method='linear', limit_direction='both') 
+                df.index.freq = inferred_freq
             
             st.session_state["df"] = df
-            if st.session_state["processed"] is None:
-                st.session_state["processed"] = preprocess_series(df.iloc[:, 0])
+            
+            # [자동화] 업로드 즉시 전처리 수행
+            if st.session_state.get("processed") is None:
+                with st.spinner("데이터 분석 중..."):
+                    target_series = df.iloc[:, 0]
+                    st.session_state["processed"] = preprocess_series(target_series)
+                st.success("데이터 로드 및 중복 제거 완료!")
 
     if st.session_state["processed"] is not None:
         with st.container(border=True):
