@@ -444,7 +444,6 @@ with st.sidebar:
             # [핵심 수정] 2. 중복 인덱스 제거 (Duplicate Labels 해결)
             # 중복된 날짜가 있다면 첫 번째 데이터만 남깁니다.
             if not df.index.is_unique:
-                st.warning("⚠️ 데이터에 중복된 날짜가 발견되어 첫 번째 기록을 기준으로 통합했습니다.")
                 df = df[~df.index.duplicated(keep='first')]
             
             # 3. 데이터 빈도 정렬 및 강제 할당 (추론 안정화)
