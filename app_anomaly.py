@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore")
 # 0. 페이지 설정 / 공통 스타일
 # ------------------------------------------------------------
 st.set_page_config(
-    page_title="시계열분석 Project2 이상 탐지",
+    page_title="다변량 시계열 이상탐지 대시보드",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -523,8 +523,8 @@ with st.sidebar:
 # ------------------------------------------------------------
 # 7. 메인 화면
 # ------------------------------------------------------------
-st.title("📈 시계열분석 Project2 이상 탐지")
-st.subheader("C321032 박하율")
+st.title("📈 다변량 시계열 이상탐지 대시보드")
+st.subheader("CSV 업로드 기반 자동 분석 · 이상탐지 · 평가 시각화")
 st.divider()
 
 if uploaded_file is None:
