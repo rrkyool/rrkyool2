@@ -869,9 +869,6 @@ with tab1:
 
     st.subheader("데이터 기본 분석")
 
-    # --------------------------------------------------------
-    # 1행: 데이터 미리보기 / 정상성 검정
-    # --------------------------------------------------------
     c1, c2 = st.columns([1, 1], gap="medium")
 
     with c1:
@@ -880,7 +877,6 @@ with tab1:
             raw_df.head(10),
             use_container_width=True,
             height=300,
-            key="tab1_raw_preview",
         )
 
     with c2:
@@ -890,14 +886,10 @@ with tab1:
             use_container_width=True,
             hide_index=True,
             height=300,
-            key="tab1_stationarity",
         )
 
     st.divider()
 
-    # --------------------------------------------------------
-    # 2행: 높은 상관관계 / Heatmap
-    # --------------------------------------------------------
     c3, c4 = st.columns([1, 1], gap="medium")
 
     with c3:
@@ -907,7 +899,6 @@ with tab1:
             use_container_width=True,
             hide_index=True,
             height=420,
-            key="tab1_high_corr",
         )
 
     with c4:
@@ -918,7 +909,6 @@ with tab1:
         st.plotly_chart(
             plot_correlation_heatmap(ts_df[corr_cols]),
             use_container_width=True,
-            key="tab1_corr_heatmap",
         )
 
 # ============================================================
