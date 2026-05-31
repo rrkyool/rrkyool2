@@ -647,77 +647,117 @@ def plot_confusion(metrics: Dict) -> go.Figure:
 
     return fig
 
-
-# ------------------------------------------------------------
-# 6. 사이드바
-# ------------------------------------------------------------
-if "file_hash" not in st.session_state:
-    st.session_state["file_hash"] = None
-
-with st.sidebar:
-    st.title("설정")
-
-    uploaded_file = st.file_uploader(
-        "CSV 파일 업로드",
-        type=["csv"],
-    )
-
-    st.divider()
-
-    st.subheader("이상탐지 설정")
-
-    method = st.selectbox(
-        "탐지 알고리즘",
-        ["Ensemble", "Isolation Forest", "Robust Z-Score", "PCA Reconstruction"],
-    )
-
-    contamination = st.number_input(
-        "예상 이상 비율",
-        min_value=0.001,
-        max_value=0.300,
-        value=0.050,
-        step=0.005,
-        format="%.3f",
-    )
-
-    threshold_mode = st.radio(
-        "임계값 방식",
-        ["자동", "수동 분위수"],
-        horizontal=True,
-    )
-
-    manual_q = st.number_input(
-        "수동 임계 분위수(%)",
-        min_value=50.0,
-        max_value=99.9,
-        value=95.0,
-        step=0.1,
-        disabled=(threshold_mode == "자동"),
-    )
-
-    include_rolling = st.checkbox(
-        "Rolling 통계 feature 포함",
-        value=True,
-    )
-
-    st.divider()
-
-    st.subheader("화면 설정")
-
-    corr_threshold = st.number_input(
-        "상관관계 표시 기준",
-        min_value=0.1,
-        max_value=0.99,
-        value=0.7,
-        step=0.05,
-    )
-
-
 # ------------------------------------------------------------
 # 7. 메인
 # ------------------------------------------------------------
 st.title("다변량 시계열 이상탐지 대시보드")
 st.caption("CSV 업로드 → 자동 전처리 → 이상탐지 → 진단 및 평가 시각화")
+
+# ------------------------------------------------------------
+# 설정 초기화
+# ------------------------------------------------------------
+if "file_hash" not in st.session_state:
+    st.session_state["file_hash"] = None
+
+
+# ------------------------------------------------------------
+# 제목
+# ------------------------------------------------------------
+st.title("다변량 시계열 이상탐지 대시보드")
+st.subtitle("C321032 박하율")
+
+# ------------------------------------------------------------
+# 상단 Control Panel
+# ------------------------------------------------------------
+with st.container(border=True):
+
+    st.markdown("### 분석 설정")
+
+    # ---------------- 1줄 ----------------
+    c1, c2, c3, c4, c5 = st.columns([1.5, 1, 1, 1, 1])
+
+    with c1:
+        uploaded_file = st.file_uploader(
+            "CSV 파일 업로드",
+            type=["csv"],
+            label_visibility="visible"
+        )
+
+    with c2:
+        method = st.selectbox(
+            "탐지 알고리즘",
+            [
+                "Ensemble",
+                "Isolation Forest",
+                "Robust Z-Score",
+                "PCA Reconstruction"
+            ],
+        )
+
+    with c3:
+        contamination = st.number_input(
+            "예상 이상 비율",
+            min_value=0.001,
+            max_value=0.300,
+            value=0.050,
+            step=0.005,
+            format="%.3f",
+        )
+
+    with c4:
+        threshold_mode = st.selectbox(
+            "임계값 방식",
+            ["자동", "수동 분위수"],
+        )
+
+    with c5:
+        manual_q = st.number_input(
+            "수동 분위수(%)",
+            min_value=50.0,
+            max_value=99.9,
+            value=95.0,
+            step=0.1,
+            disabled=(threshold_mode == "자동"),
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ---------------- 2줄 ----------------
+    c6, c7, c8, c9 = st.columns([1, 1, 1, 2])
+
+    with c6:
+        rolling_window = st.number_input(
+            "Rolling window",
+            min_value=3,
+            max_value=200,
+            value=24,
+            step=1,
+        )
+
+    with c7:
+        include_rolling = st.checkbox(
+            "Rolling 통계 feature 포함",
+            value=True,
+        )
+
+    with c8:
+        corr_threshold = st.number_input(
+            "상관관계 표시 기준",
+            min_value=0.1,
+            max_value=0.99,
+            value=0.7,
+            step=0.05,
+        )
+
+    with c9:
+        selected_cols = st.multiselect(
+            "시계열 그래프 표시 변수",
+            options=[],
+            default=[],
+            help="파일 업로드 후 자동 활성화됩니다."
+        )
+
+st.divider()
 
 if uploaded_file is None:
     st.info("왼쪽에서 CSV 파일을 업로드하면 분석이 시작됩니다.")
