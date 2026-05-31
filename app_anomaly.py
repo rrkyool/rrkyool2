@@ -1311,7 +1311,7 @@ with tab3:
                 agreement_df,
                 use_container_width=True,
                 hide_index=True,
-                height=260,
+                height=200,
             )
 
     with c4:
