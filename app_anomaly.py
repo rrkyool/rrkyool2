@@ -669,55 +669,56 @@ with st.container(border=True):
 
     st.markdown("### 데이터 및 분석 조건 설정")
 
-    # --------------------------------------------------------
-    # 외부 영역: 파일 업로드
-    # --------------------------------------------------------
-    uploaded_file = st.file_uploader(
-        "CSV 파일 업로드",
-        type=["csv"],
-        help="파일이 변경되면 자동으로 새로운 이상탐지를 수행합니다.",
-    )
-
-    if uploaded_file is None:
-        st.info("CSV 파일을 업로드하면 분석 설정과 세부 설정이 활성화됩니다.")
-        st.stop()
-
-    # --------------------------------------------------------
-    # 파일 업로드 후 데이터 로드
-    # --------------------------------------------------------
-    try:
-        current_hash = get_file_fingerprint(uploaded_file)
-
-        if st.session_state.get("file_hash") != current_hash:
-            reset_state_for_new_file(current_hash)
-
-        raw_df = load_csv(uploaded_file)
-
-        auto_time_col = find_datetime_column(raw_df)
-
-        ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
-
-        max_window = max(3, min(200, len(ts_df) // 2))
-        default_window = min(24, max(3, len(ts_df) // 10))
-
-    except Exception as e:
-        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
-        st.stop()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # 내부 영역: 분석 설정 / 세부 설정
-    # --------------------------------------------------------
     left_panel, right_panel = st.columns([1.15, 1])
 
     # ========================================================
-    # LEFT : 분석 설정
+    # LEFT : 1. 데이터 업로드 / 2. 분석 설정
     # ========================================================
     with left_panel:
-        with st.container(border=True):
 
-            st.markdown("#### 분석 설정")
+        # ----------------------------------------------------
+        # 1. 데이터 업로드
+        # ----------------------------------------------------
+        with st.container(border=True):
+            st.markdown("#### 1. 데이터 업로드")
+
+            uploaded_file = st.file_uploader(
+                "CSV 파일 업로드",
+                type=["csv"],
+                help="파일이 변경되면 자동으로 새로운 이상탐지를 수행합니다.",
+            )
+
+            if uploaded_file is None:
+                st.info("CSV 파일을 업로드하면 분석 설정과 세부 설정이 활성화됩니다.")
+                st.stop()
+
+        # ----------------------------------------------------
+        # 파일 업로드 후 데이터 로드
+        # ----------------------------------------------------
+        try:
+            current_hash = get_file_fingerprint(uploaded_file)
+
+            if st.session_state.get("file_hash") != current_hash:
+                reset_state_for_new_file(current_hash)
+
+            raw_df = load_csv(uploaded_file)
+
+            auto_time_col = find_datetime_column(raw_df)
+
+            ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
+
+            max_window = max(3, min(200, len(ts_df) // 2))
+            default_window = min(24, max(3, len(ts_df) // 10))
+
+        except Exception as e:
+            st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
+            st.stop()
+
+        # ----------------------------------------------------
+        # 2. 분석 설정
+        # ----------------------------------------------------
+        with st.container(border=True):
+            st.markdown("#### 2. 분석 설정")
 
             c1, c2 = st.columns(2)
 
@@ -742,35 +743,33 @@ with st.container(border=True):
                     format="%.3f",
                 )
 
-            c3, c4 = st.columns(2)
-
-            with c3:
-                threshold_mode = st.selectbox(
+            use_manual_threshold = st.selectbox(
                     "임계값 방식",
                     ["자동", "수동 분위수"],
                 )
 
-            with c4:
-                manual_q = st.number_input(
-                    "수동 분위수(%)",
-                    min_value=50.0,
-                    max_value=99.9,
-                    value=95.0,
-                    step=0.1,
-                    disabled=(threshold_mode == "자동"),
-                )
+            manual_q = st.number_input(
+                "수동 분위수(%)",
+                min_value=50.0,
+                max_value=99.9,
+                value=95.0,
+                step=0.1,
+                disabled=not use_manual_threshold,
+            )
+
+            threshold_mode = "수동 분위수" if use_manual_threshold else "자동"
 
     # ========================================================
-    # RIGHT : 세부 설정
+    # RIGHT : 3. 세부 설정
     # ========================================================
     with right_panel:
+
         with st.container(border=True):
+            st.markdown("#### 3. 세부 설정")
 
-            st.markdown("#### 세부 설정")
+            c3, c4 = st.columns(2)
 
-            c5, c6 = st.columns(2)
-
-            with c5:
+            with c3:
                 rolling_window = st.number_input(
                     "Rolling window",
                     min_value=3,
@@ -779,7 +778,7 @@ with st.container(border=True):
                     step=1,
                 )
 
-            with c6:
+            with c4:
                 corr_threshold = st.number_input(
                     "상관관계 표시 기준",
                     min_value=0.1,
@@ -808,7 +807,6 @@ with st.container(border=True):
             )
 
 st.divider()
-
 
 # ------------------------------------------------------------
 # 이상탐지 실행
