@@ -794,9 +794,8 @@ with st.container(border=True):
             with c1:
                 method = "Ensemble"
             
-                st.markdown("**탐지 방식**")
                 st.markdown(
-                    "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 방식"
+                    "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 모델로 이상 탐지"
                 )
             
                 threshold_mode = st.radio(
