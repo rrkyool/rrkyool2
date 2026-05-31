@@ -611,7 +611,9 @@ def plot_score(result: pd.DataFrame, score_detail: pd.DataFrame) -> go.Figure:
             y=result["threshold"],
             name="Threshold",
             mode="lines",
-            line=dict(dash="dash", color="#d62728", width=2),
+            line=dict(
+            width=3 if col == "Final Score" else 1.5,
+            color="green" if col == "Final Score" else None),
         )
     )
 
