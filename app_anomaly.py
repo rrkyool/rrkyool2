@@ -730,7 +730,7 @@ if "file_hash" not in st.session_state:
 
 
 # 제목
-st.title("다변량 시계열 이상탐지 대시보드")
+st.title("📈시계열분석 Project2 이상탐지")
 st.markdown("#### C321032 박하율")
 
 # ------------------------------------------------------------
