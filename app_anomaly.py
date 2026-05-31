@@ -759,7 +759,7 @@ with st.container(border=True):
     # ========================================================
     with right_panel:
 
-        with st.container(border=True, height=450):
+        with st.container(border=True, height=455):
             st.markdown("#### 세부 설정")
 
             c3, c4 = st.columns(2)
@@ -877,20 +877,38 @@ with tab1:
             st.markdown("#### 데이터 미리보기")
 
             st.dataframe(
-                raw_df.head(20),
+                raw_df.head(10),
                 use_container_width=True,
             )
 
     with c2:
         with st.container(border=True):
-
+    
             st.markdown("#### 수치형 변수 요약")
-
+    
+            summary_df = ts_df.describe().T.reset_index()
+            summary_df = summary_df.rename(columns={"index": "변수"})
+    
+            # 표시 안정성을 위해 숫자 반올림
+            numeric_cols = summary_df.select_dtypes(include=[np.number]).columns
+            summary_df[numeric_cols] = summary_df[numeric_cols].round(2)
+    
+            # 너무 많은 행을 한 번에 렌더링하지 않도록 제한
+            max_summary_rows = 50
+    
             st.dataframe(
-                ts_df.describe().T,
+                summary_df.head(max_summary_rows),
                 use_container_width=True,
+                hide_index=True,
+                height=360,
             )
-
+    
+            if len(summary_df) > max_summary_rows:
+                st.caption(
+                    f"변수가 많아 상위 {max_summary_rows}개 변수만 표시했습니다. "
+                    f"전체 변수 수: {len(summary_df)}"
+                )
+    
     c3, c4 = st.columns([1, 1])
 
     with c3:
