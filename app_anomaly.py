@@ -1093,33 +1093,17 @@ with tab1:
     
         high_corr_display = high_corr_df.copy()
     
-        if "상관계수" in high_corr_display.columns:
-            high_corr_display["상관계수"] = pd.to_numeric(
-                high_corr_display["상관계수"],
-                errors="coerce",
-            )
-    
-            st.dataframe(
-                high_corr_display.style.background_gradient(
-                    subset=["상관계수"],
-                    cmap="Blues",
-                ),
-                use_container_width=True,
-                hide_index=True,
-                height=300,
-            )
-        else:
-            st.dataframe(
-                high_corr_display,
-                use_container_width=True,
-                hide_index=True,
-                height=300,
-            )
+        st.dataframe(
+            high_corr_display,
+            use_container_width=True,
+            hide_index=True,
+            height=300,
+        )
     
         st.caption(
             "상관계수가 높은 변수쌍은 PCA Reconstruction 기반 탐지에서 함께 변동하는 구조를 해석하는 데 참고할 수 있습니다."
         )
-
+        
     with c4:
 
         st.markdown("#### ACF 기반 Lag 분석")
