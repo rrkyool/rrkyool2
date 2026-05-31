@@ -669,54 +669,117 @@ with st.container(border=True):
 
     st.markdown("### 분석 설정")
 
-    c1, c2, c3, c4, c5 = st.columns([1.5, 1, 1, 1, 1])
-
-    with c1:
-        uploaded_file = st.file_uploader(
-            "CSV 파일 업로드",
-            type=["csv"],
-            label_visibility="visible",
-        )
-
-    with c2:
-        method = st.selectbox(
-            "탐지 알고리즘",
-            [
-                "Ensemble",
-                "Isolation Forest",
-                "Robust Z-Score",
-                "PCA Reconstruction",
-            ],
-        )
-
-    with c3:
-        contamination = st.number_input(
-            "예상 이상 비율",
-            min_value=0.001,
-            max_value=0.300,
-            value=0.050,
-            step=0.005,
-            format="%.3f",
-        )
-
-    with c4:
-        threshold_mode = st.selectbox(
-            "임계값 방식",
-            ["자동", "수동 분위수"],
-        )
-
-    with c5:
-        manual_q = st.number_input(
-            "수동 분위수(%)",
-            min_value=50.0,
-            max_value=99.9,
-            value=95.0,
-            step=0.1,
-            disabled=(threshold_mode == "자동"),
-        )
-
-st.divider()
-
+    # ------------------------------------------------------------
+    # 상단 통합 Control Panel
+    # ------------------------------------------------------------
+    left_panel, right_panel = st.columns([1.2, 1])
+    
+    # ============================================================
+    # LEFT : 분석 설정
+    # ============================================================
+    with left_panel:
+    
+        with st.container(border=True):
+    
+            st.markdown("### 분석 설정")
+    
+            c1, c2 = st.columns([1.5, 1])
+    
+            with c1:
+                uploaded_file = st.file_uploader(
+                    "CSV 파일 업로드",
+                    type=["csv"],
+                )
+    
+            with c2:
+                method = st.selectbox(
+                    "탐지 알고리즘",
+                    [
+                        "Ensemble",
+                        "Isolation Forest",
+                        "Robust Z-Score",
+                        "PCA Reconstruction",
+                    ],
+                )
+    
+            c3, c4, c5 = st.columns(3)
+    
+            with c3:
+                contamination = st.number_input(
+                    "예상 이상 비율",
+                    min_value=0.001,
+                    max_value=0.300,
+                    value=0.050,
+                    step=0.005,
+                    format="%.3f",
+                )
+    
+            with c4:
+                threshold_mode = st.selectbox(
+                    "임계값 방식",
+                    ["자동", "수동 분위수"],
+                )
+    
+            with c5:
+                manual_q = st.number_input(
+                    "수동 분위수(%)",
+                    min_value=50.0,
+                    max_value=99.9,
+                    value=95.0,
+                    step=0.1,
+                    disabled=(threshold_mode == "자동"),
+                )
+    
+    
+    # ============================================================
+    # RIGHT : 세부 설정
+    # ============================================================
+    with right_panel:
+    
+        with st.container(border=True):
+    
+            st.markdown("### 세부 설정")
+    
+            c6, c7 = st.columns(2)
+    
+            with c6:
+                rolling_window = st.number_input(
+                    "Rolling window",
+                    min_value=3,
+                    max_value=max_window,
+                    value=default_window,
+                    step=1,
+                )
+    
+            with c7:
+                corr_threshold = st.number_input(
+                    "상관관계 표시 기준",
+                    min_value=0.1,
+                    max_value=0.99,
+                    value=0.7,
+                    step=0.05,
+                )
+    
+            include_rolling = st.checkbox(
+                "Rolling 통계 feature 포함",
+                value=True,
+            )
+    
+            selected_cols = st.multiselect(
+                "시계열 그래프 표시 변수",
+                list(ts_df.columns),
+                default=list(ts_df.columns[: min(4, len(ts_df.columns))]),
+            )
+    
+            top_n = st.number_input(
+                "기여도 변수 수",
+                min_value=3,
+                max_value=min(30, len(ts_df.columns)),
+                value=min(12, len(ts_df.columns)),
+                step=1,
+            )
+    
+    st.divider()
 
 # ------------------------------------------------------------
 # 파일 업로드 전 안내
@@ -747,61 +810,7 @@ try:
 except Exception as e:
     st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
     st.stop()
-
-
-# ------------------------------------------------------------
-# 상단 Control Panel 2차 설정
-# 파일 업로드 후 ts_df가 생겨야 가능한 설정들
-# ------------------------------------------------------------
-with st.container(border=True):
-
-    st.markdown("### 세부 설정")
-
-    c6, c7, c8, c9, c10 = st.columns([1, 1, 1, 2, 1])
-
-    with c6:
-        rolling_window = st.number_input(
-            "Rolling window",
-            min_value=3,
-            max_value=max_window,
-            value=default_window,
-            step=1,
-        )
-
-    with c7:
-        include_rolling = st.checkbox(
-            "Rolling 통계 feature 포함",
-            value=True,
-        )
-
-    with c8:
-        corr_threshold = st.number_input(
-            "상관관계 표시 기준",
-            min_value=0.1,
-            max_value=0.99,
-            value=0.7,
-            step=0.05,
-        )
-
-    with c9:
-        selected_cols = st.multiselect(
-            "시계열 그래프 표시 변수",
-            list(ts_df.columns),
-            default=list(ts_df.columns[: min(4, len(ts_df.columns))]),
-        )
-
-    with c10:
-        top_n = st.number_input(
-            "기여도 변수 수",
-            min_value=3,
-            max_value=min(30, len(ts_df.columns)),
-            value=min(12, len(ts_df.columns)),
-            step=1,
-        )
-
-st.divider()
-
-
+    
 # ------------------------------------------------------------
 # 이상탐지 실행
 # ------------------------------------------------------------
