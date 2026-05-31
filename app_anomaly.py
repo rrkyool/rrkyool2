@@ -1104,7 +1104,7 @@ with tab1:
             acf_df,
             use_container_width=True,
             hide_index=True,
-            height=300,
+            #height=300,
         )
     
         st.caption(
