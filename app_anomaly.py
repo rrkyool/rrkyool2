@@ -503,51 +503,108 @@ def feature_contribution(df: pd.DataFrame, anomaly_mask: pd.Series) -> pd.DataFr
         .rename(columns={"index": "변수"})
     )
 
+def anomaly_quality_summary(
+    result: pd.DataFrame,
+    score_detail: pd.DataFrame,
+) -> Dict:
 
-def make_pseudo_labels(df: pd.DataFrame, top_ratio: float = 0.05) -> pd.Series:
-    base_score = score_robust_z(df)
-    threshold = np.quantile(base_score, 1 - top_ratio)
+    anomaly_mask = result["is_anomaly"]
 
-    return pd.Series(base_score >= threshold, index=df.index)
+    anomaly_ratio = anomaly_mask.mean() * 100
+    mean_score = result["anomaly_score"].mean()
+    max_score = result["anomaly_score"].max()
 
+    if anomaly_mask.sum() > 0:
+        mean_anomaly_score = result.loc[anomaly_mask, "anomaly_score"].mean()
+    else:
+        mean_anomaly_score = np.nan
 
-def classification_metrics(y_true: np.ndarray, score: np.ndarray, pred: np.ndarray) -> Dict:
-    y_true = np.asarray(y_true).astype(bool)
-    pred = np.asarray(pred).astype(bool)
+    if (~anomaly_mask).sum() > 0:
+        mean_normal_score = result.loc[~anomaly_mask, "anomaly_score"].mean()
+    else:
+        mean_normal_score = np.nan
 
-    tp = int(np.sum(y_true & pred))
-    fp = int(np.sum(~y_true & pred))
-    fn = int(np.sum(y_true & ~pred))
-    tn = int(np.sum(~y_true & ~pred))
+    score_gap = mean_anomaly_score - mean_normal_score
 
-    precision = tp / (tp + fp + 1e-12)
-    recall = tp / (tp + fn + 1e-12)
-    f1 = 2 * precision * recall / (precision + recall + 1e-12)
+    base_models = [
+        col for col in score_detail.columns
+        if col != "Final Score"
+    ]
 
-    try:
-        fpr, tpr, _ = roc_curve(y_true, score)
-        roc_auc = auc(fpr, tpr)
-    except Exception:
-        roc_auc = np.nan
+    if len(base_models) > 0:
+        model_flags = pd.DataFrame(index=score_detail.index)
 
-    try:
-        pr, rc, _ = precision_recall_curve(y_true, score)
-        pr_auc = auc(rc, pr)
-    except Exception:
-        pr_auc = np.nan
+        for col in base_models:
+            threshold = np.quantile(
+                score_detail[col],
+                1 - anomaly_mask.mean()
+            )
+            model_flags[col] = score_detail[col] >= threshold
+
+        model_agreement = model_flags.mean(axis=1)
+
+        avg_agreement_anomaly = (
+            model_agreement[anomaly_mask].mean()
+            if anomaly_mask.sum() > 0
+            else np.nan
+        )
+
+        high_confidence_ratio = (
+            (model_agreement[anomaly_mask] >= 0.67).mean() * 100
+            if anomaly_mask.sum() > 0
+            else np.nan
+        )
+    else:
+        avg_agreement_anomaly = np.nan
+        high_confidence_ratio = np.nan
 
     return {
-        "TP": tp,
-        "FP": fp,
-        "FN": fn,
-        "TN": tn,
-        "Precision": precision,
-        "Recall": recall,
-        "F1": f1,
-        "ROC-AUC": roc_auc,
-        "PR-AUC": pr_auc,
+        "anomaly_ratio": anomaly_ratio,
+        "mean_score": mean_score,
+        "max_score": max_score,
+        "mean_anomaly_score": mean_anomaly_score,
+        "mean_normal_score": mean_normal_score,
+        "score_gap": score_gap,
+        "avg_agreement_anomaly": avg_agreement_anomaly,
+        "high_confidence_ratio": high_confidence_ratio,
     }
 
+def make_model_agreement_table(
+    result: pd.DataFrame,
+    score_detail: pd.DataFrame,
+) -> pd.DataFrame:
+
+    anomaly_mask = result["is_anomaly"]
+
+    base_models = [
+        col for col in score_detail.columns
+        if col != "Final Score"
+    ]
+
+    rows = []
+
+    for col in base_models:
+        threshold = np.quantile(
+            score_detail[col],
+            1 - anomaly_mask.mean()
+        )
+
+        model_detected = score_detail[col] >= threshold
+
+        rows.append(
+            {
+                "모델": col,
+                "모델 단독 탐지 수": int(model_detected.sum()),
+                "최종 이상과 일치 수": int((model_detected & anomaly_mask).sum()),
+                "최종 이상 기준 일치율(%)": round(
+                    ((model_detected & anomaly_mask).sum()
+                     / max(1, anomaly_mask.sum())) * 100,
+                    2,
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 # ------------------------------------------------------------
 # 5. 시각화 함수
@@ -694,33 +751,95 @@ def plot_correlation_heatmap(df: pd.DataFrame) -> go.Figure:
 
     return fig
 
+def plot_model_agreement(
+    result: pd.DataFrame,
+    score_detail: pd.DataFrame,
+) -> go.Figure:
 
-def plot_confusion(metrics: Dict) -> go.Figure:
-    z = np.array(
-        [
-            [metrics["TP"], metrics["FN"]],
-            [metrics["FP"], metrics["TN"]],
-        ]
+    anomaly_mask = result["is_anomaly"]
+
+    base_models = [
+        col for col in score_detail.columns
+        if col != "Final Score"
+    ]
+
+    agreement_counts = []
+
+    for idx in score_detail.index:
+        count = 0
+
+        for col in base_models:
+            threshold = np.quantile(
+                score_detail[col],
+                1 - anomaly_mask.mean()
+            )
+
+            if score_detail.loc[idx, col] >= threshold:
+                count += 1
+
+        agreement_counts.append(count)
+
+    agreement_df = pd.DataFrame(
+        {
+            "동의 모델 수": agreement_counts,
+            "is_anomaly": anomaly_mask.values,
+        },
+        index=score_detail.index,
     )
 
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=z,
-            x=["Pred Anomaly", "Pred Normal"],
-            y=["Ref Anomaly", "Ref Normal"],
-            text=z,
-            texttemplate="%{text}",
-            colorscale="Blues",
+    anomaly_agree = agreement_df[agreement_df["is_anomaly"]]
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Histogram(
+            x=anomaly_agree["동의 모델 수"],
+            nbinsx=len(base_models),
+            name="Detected Anomaly",
         )
     )
 
     fig.update_layout(
         height=320,
         margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="동의한 개별 모델 수",
+        yaxis_title="이상 시점 수",
+        showlegend=False,
     )
 
     return fig
 
+def plot_score_gap(result: pd.DataFrame) -> go.Figure:
+
+    plot_df = pd.DataFrame(
+        {
+            "구분": np.where(
+                result["is_anomaly"],
+                "Anomaly",
+                "Normal",
+            ),
+            "Anomaly Score": result["anomaly_score"],
+        }
+    )
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Box(
+            x=plot_df["구분"],
+            y=plot_df["Anomaly Score"],
+            boxmean=True,
+        )
+    )
+
+    fig.update_layout(
+        height=320,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="구분",
+        yaxis_title="Anomaly Score",
+    )
+
+    return fig
 
 # ------------------------------------------------------------
 # 7. 메인
@@ -895,11 +1014,14 @@ try:
         contrib_df = feature_contribution(ts_df, result["is_anomaly"])
         lb = calc_ljungbox_summary(result["anomaly_score"])
 
-        pseudo_y = make_pseudo_labels(ts_df, top_ratio=contamination)
-        metrics = classification_metrics(
-            pseudo_y.values,
-            result["anomaly_score"].values,
-            result["is_anomaly"].values,
+        quality = anomaly_quality_summary(
+            result,
+            score_detail,
+        )
+        
+        agreement_df = make_model_agreement_table(
+            result,
+            score_detail,
         )
 
 except Exception as e:
@@ -930,7 +1052,7 @@ st.divider()
 tab1, tab2, tab3 = st.tabs([
     "🧩 데이터 진단 및 EDA",
     "🚨 이상탐지 결과",
-    "📈 모델 평가 및 통계"
+    "✅ 탐지 품질 진단"
 ])
 
 
@@ -1098,44 +1220,44 @@ with tab2:
 # ============================================================
 with tab3:
 
-    st.subheader("평가지표 및 시각화")
+    st.subheader("탐지 품질 진단")
 
     st.markdown(
         """
-        Precision, Recall, F1 등은
-        실제 정답 라벨이 없는 환경을 고려하여
-        내부 기준 기반 pseudo-label로 계산된 참고 지표입니다.
+        실제 이상치 정답 라벨이 없는 비지도 이상탐지 환경에서는
+        Accuracy, Precision, Recall보다 탐지 결과의 구조적 타당성,
+        점수 분리도, 모델 간 일치도, 시간적 연속성을 중심으로 결과를 검토합니다.
         """
     )
 
     m1, m2, m3, m4, m5 = st.columns(5)
 
     m1.metric(
-        "Precision",
-        f"{metrics['Precision']:.3f}"
+        "탐지 이상 비율",
+        f"{quality['anomaly_ratio']:.2f}%"
     )
 
     m2.metric(
-        "Recall",
-        f"{metrics['Recall']:.3f}"
+        "평균 이상 점수",
+        f"{quality['mean_score']:.3f}"
     )
 
     m3.metric(
-        "F1",
-        f"{metrics['F1']:.3f}"
+        "최대 이상 점수",
+        f"{quality['max_score']:.3f}"
     )
 
     m4.metric(
-        "ROC-AUC",
-        f"{metrics['ROC-AUC']:.3f}"
-        if not np.isnan(metrics["ROC-AUC"])
+        "이상-정상 점수 차이",
+        f"{quality['score_gap']:.3f}"
+        if not np.isnan(quality["score_gap"])
         else "N/A"
     )
 
     m5.metric(
-        "PR-AUC",
-        f"{metrics['PR-AUC']:.3f}"
-        if not np.isnan(metrics["PR-AUC"])
+        "고신뢰 이상 비율",
+        f"{quality['high_confidence_ratio']:.1f}%"
+        if not np.isnan(quality["high_confidence_ratio"])
         else "N/A"
     )
 
@@ -1144,17 +1266,58 @@ with tab3:
     with c1:
         with st.container(border=True):
 
-            st.markdown("#### 참고 혼동행렬")
+            st.markdown("#### 이상 점수 분리도")
 
             st.plotly_chart(
-                plot_confusion(metrics),
+                plot_score_gap(result),
                 use_container_width=True,
+            )
+
+            st.caption(
+                """
+                정상 시점과 이상 시점의 anomaly score 분포가 잘 분리될수록
+                임계값 기준이 비교적 명확하다고 해석할 수 있습니다.
+                """
             )
 
     with c2:
         with st.container(border=True):
 
-            st.markdown("#### 이상 점수 자기상관 진단")
+            st.markdown("#### 모델 간 이상 판단 일치도")
+
+            st.plotly_chart(
+                plot_model_agreement(
+                    result,
+                    score_detail,
+                ),
+                use_container_width=True,
+            )
+
+            st.caption(
+                """
+                여러 개별 모델이 동시에 이상으로 판단한 시점일수록
+                상대적으로 신뢰도가 높은 이상 후보로 볼 수 있습니다.
+                """
+            )
+
+    c3, c4 = st.columns([1, 1])
+
+    with c3:
+        with st.container(border=True):
+
+            st.markdown("#### 개별 모델별 최종 이상 일치율")
+
+            st.dataframe(
+                agreement_df,
+                use_container_width=True,
+                hide_index=True,
+                height=260,
+            )
+
+    with c4:
+        with st.container(border=True):
+
+            st.markdown("#### 이상 점수 연속성 진단")
 
             st.metric(
                 f"Ljung-Box p-value (lag={lb['lag']})",
@@ -1163,10 +1326,34 @@ with tab3:
                 else "N/A",
             )
 
-            st.write(
-                """
-                이상 점수가 특정 구간에서
-                연속적으로 높게 나타나면
-                구조 변화나 계절성 가능성이 있습니다.
-                """
-            )
+            if lb["has_autocorr"]:
+                st.warning(
+                    """
+                    이상 점수에 자기상관이 존재합니다.
+                    이는 이상이 무작위로 흩어진 것이 아니라
+                    특정 구간에 연속적으로 발생했을 가능성을 의미합니다.
+                    """
+                )
+            else:
+                st.info(
+                    """
+                    이상 점수의 뚜렷한 자기상관은 확인되지 않았습니다.
+                    이상 후보가 비교적 산발적으로 분포했을 가능성이 있습니다.
+                    """
+                )
+
+    st.divider()
+
+    with st.container(border=True):
+
+        st.markdown("#### 품질 진단 해석 가이드")
+
+        st.markdown(
+            """
+            - **탐지 이상 비율**이 너무 높으면 과탐지 가능성이 있습니다.
+            - **이상-정상 점수 차이**가 클수록 threshold 기준이 명확합니다.
+            - **고신뢰 이상 비율**은 여러 모델이 동시에 이상으로 판단한 비율입니다.
+            - **Ljung-Box p-value**가 낮으면 이상 점수가 시간적으로 연속되는 구조를 가질 수 있습니다.
+            - 정답 라벨이 없는 환경에서는 이 지표들을 종합하여 탐지 결과의 타당성을 판단합니다.
+            """
+        )
