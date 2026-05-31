@@ -601,7 +601,7 @@ def plot_score(result: pd.DataFrame, score_detail: pd.DataFrame) -> go.Figure:
                 y=score_detail[col],
                 name=col,
                 mode="lines",
-                line=dict(width=4 if col == "Final Score" else 1.5),
+                line=dict(width=3 if col == "Final Score" else 1.5),
             )
         )
 
