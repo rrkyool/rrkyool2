@@ -792,16 +792,84 @@ except Exception as e:
 # ------------------------------------------------------------
 # 8. 상단 요약 카드
 # ------------------------------------------------------------
-m1, m2, m3, m4, m5 = st.columns(5)
 
-m1.metric("데이터 수", f"{meta['n_rows']:,}")
-m2.metric("변수 수", f"{meta['n_features']:,}")
-m3.metric("탐지 이상 수", f"{int(result['is_anomaly'].sum()):,}")
-m4.metric("이상 비율", f"{result['is_anomaly'].mean() * 100:.2f}%")
-m5.metric("임계값", f"{float(result['threshold'].iloc[0]):.3f}")
+summary_items = [
+    ("데이터 수", f"{meta['n_rows']:,}"),
+    ("변수 수", f"{meta['n_features']:,}"),
+    ("탐지 이상 수", f"{int(result['is_anomaly'].sum()):,}"),
+    ("이상 비율", f"{result['is_anomaly'].mean() * 100:.2f}%"),
+    ("임계값", f"{float(result['threshold'].iloc[0]):.3f}"),
+]
 
-st.caption(
-    f"시간 컬럼: {meta['time_col']} | 빈도: {meta['inferred_freq']} | 기간: {meta['start']} ~ {meta['end']}"
+st.markdown(
+    """
+    <style>
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 14px;
+        margin-bottom: 12px;
+    }
+    .summary-card {
+        height: 105px;
+        background: #ffffff;
+        border: 1px solid #e9ecef;
+        border-radius: 16px;
+        padding: 16px 18px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .summary-title {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-bottom: 8px;
+        font-weight: 500;
+    }
+    .summary-value {
+        font-size: 1.65rem;
+        color: #212529;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .summary-caption {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 14px;
+        padding: 10px 14px;
+        color: #555;
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+summary_html = "<div class='summary-grid'>"
+
+for title, value in summary_items:
+    summary_html += f"""
+    <div class='summary-card'>
+        <div class='summary-title'>{title}</div>
+        <div class='summary-value'>{value}</div>
+    </div>
+    """
+
+summary_html += "</div>"
+
+st.markdown(summary_html, unsafe_allow_html=True)
+
+st.markdown(
+    f"""
+    <div class='summary-caption'>
+        시간 컬럼: {meta['time_col']} &nbsp;|&nbsp;
+        빈도: {meta['inferred_freq']} &nbsp;|&nbsp;
+        기간: {meta['start']} ~ {meta['end']}
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 st.divider()
