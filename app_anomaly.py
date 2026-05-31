@@ -902,7 +902,7 @@ with tab1:
         high_corr_display = high_corr_df.copy()
         high_corr_display = high_corr_display.astype(str)
     
-        st.table(high_corr_display.head())
+        st.table(high_corr_display)
 
     with c4:
         st.markdown("#### 상관관계 Heatmap")
