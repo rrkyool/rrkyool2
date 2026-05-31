@@ -852,6 +852,7 @@ if "file_hash" not in st.session_state:
 # 제목
 st.title("📈시계열분석 Project2 이상탐지")
 st.markdown("#### C321032 박하율")
+st.divider()
 
 # ------------------------------------------------------------
 # 상단 통합 Control Panel
