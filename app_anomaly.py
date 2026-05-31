@@ -908,14 +908,14 @@ with tab1:
     with c4:
         with st.container(border=True):
 
-        st.markdown("#### 상관관계 Heatmap")
-
-        corr_cols = ts_df.columns[: min(25, len(ts_df.columns))]
-
-        st.plotly_chart(
-            plot_correlation_heatmap(ts_df[corr_cols]),
-            use_container_width=True,
-        )
+            st.markdown("#### 상관관계 Heatmap")
+    
+            corr_cols = ts_df.columns[: min(25, len(ts_df.columns))]
+    
+            st.plotly_chart(
+                plot_correlation_heatmap(ts_df[corr_cols]),
+                use_container_width=True,
+            )
 
 # ============================================================
 # TAB 2 : 이상탐지 결과 분석
