@@ -1097,7 +1097,7 @@ with tab1:
             high_corr_display,
             use_container_width=True,
             hide_index=True,
-            height=300,
+            height=500,
         )
     
         st.caption(
