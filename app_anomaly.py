@@ -869,53 +869,57 @@ with tab1:
 
     st.subheader("데이터 기본 분석")
 
-    c1, c2 = st.columns([1, 1])
+    # --------------------------------------------------------
+    # 1행: 데이터 미리보기 / 정상성 검정
+    # --------------------------------------------------------
+    c1, c2 = st.columns([1, 1], gap="medium")
 
     with c1:
-        with st.container(border=True):
-
-            st.markdown("#### 데이터 미리보기")
-
-            st.dataframe(
-                raw_df.head(10),
-                use_container_width=True,
-            )
+        st.markdown("#### 데이터 미리보기")
+        st.dataframe(
+            raw_df.head(10),
+            use_container_width=True,
+            height=300,
+            key="tab1_raw_preview",
+        )
 
     with c2:
-        with st.container(border=True):
+        st.markdown("#### 변수별 정상성 검정")
+        st.dataframe(
+            stat_df,
+            use_container_width=True,
+            hide_index=True,
+            height=300,
+            key="tab1_stationarity",
+        )
 
-            st.markdown("#### 변수별 정상성 검정")
+    st.divider()
 
-            st.dataframe(
-                stat_df,
-                use_container_width=True,
-                hide_index=True,
-            )
-    
-    c3, c4 = st.columns([1, 1])
+    # --------------------------------------------------------
+    # 2행: 높은 상관관계 / Heatmap
+    # --------------------------------------------------------
+    c3, c4 = st.columns([1, 1], gap="medium")
 
     with c3:
-        with st.container(border=True):
-
-            st.markdown("#### 높은 상관관계 변수쌍")
-
-            st.dataframe(
-                high_corr_df,
-                use_container_width=True,
-                hide_index=True,
-            )
+        st.markdown("#### 높은 상관관계 변수쌍")
+        st.dataframe(
+            high_corr_df,
+            use_container_width=True,
+            hide_index=True,
+            height=420,
+            key="tab1_high_corr",
+        )
 
     with c4:
-        with st.container(border=True):
+        st.markdown("#### 상관관계 Heatmap")
 
-            st.markdown("#### 상관관계 Heatmap")
-    
-            corr_cols = ts_df.columns[: min(25, len(ts_df.columns))]
-    
-            st.plotly_chart(
-                plot_correlation_heatmap(ts_df[corr_cols]),
-                use_container_width=True,
-            )
+        corr_cols = ts_df.columns[: min(25, len(ts_df.columns))]
+
+        st.plotly_chart(
+            plot_correlation_heatmap(ts_df[corr_cols]),
+            use_container_width=True,
+            key="tab1_corr_heatmap",
+        )
 
 # ============================================================
 # TAB 2 : 이상탐지 결과 분석
