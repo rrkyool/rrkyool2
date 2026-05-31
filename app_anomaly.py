@@ -950,7 +950,7 @@ with tab1:
         st.dataframe(
             raw_df.head(10),
             use_container_width=True,
-            height=300,
+            height=500,
         )
 
     with c2:
@@ -960,7 +960,7 @@ with tab1:
             missing_df,
             use_container_width=True,
             hide_index=True,
-            height=300,
+            height=500,
         )
 
     st.divider()
