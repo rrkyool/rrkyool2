@@ -659,15 +659,13 @@ if "file_hash" not in st.session_state:
 # 제목
 st.title("다변량 시계열 이상탐지 대시보드")
 st.markdown("#### C321032 박하율")
-st.caption("CSV 업로드 → 자동 전처리 → 이상탐지 → 진단 및 평가 시각화")
-
 
 # ------------------------------------------------------------
 # 상단 통합 Control Panel
 # ------------------------------------------------------------
 with st.container(border=True):
 
-    st.markdown("### 데이터 및 분석 조건 설정")
+    st.markdown("### 데이터 업로드 & 분석 조건 설정")
 
     left_panel, right_panel = st.columns([1.15, 1])
 
@@ -679,7 +677,7 @@ with st.container(border=True):
         # ----------------------------------------------------
         # 1. 데이터 업로드
         # ----------------------------------------------------
-        with st.container(border=True):
+        with st.container(border=True, height=150):
             st.markdown("#### 1. 데이터 업로드")
 
             uploaded_file = st.file_uploader(
@@ -717,54 +715,58 @@ with st.container(border=True):
         # ----------------------------------------------------
         # 2. 분석 설정
         # ----------------------------------------------------
-        with st.container(border=True):
+        with st.container(border=True, height=350):
             st.markdown("#### 2. 분석 설정")
 
             c1, c2 = st.columns(2)
 
             with c1:
-                method = st.selectbox(
-                    "탐지 알고리즘",
-                    [
-                        "Ensemble",
-                        "Isolation Forest",
-                        "Robust Z-Score",
-                        "PCA Reconstruction",
-                    ],
-                )
-
-            with c2:
-                contamination = st.number_input(
-                    "예상 이상 비율",
-                    min_value=0.001,
-                    max_value=0.300,
-                    value=0.050,
-                    step=0.005,
-                    format="%.3f",
-                )
-
-            use_manual_threshold = st.selectbox(
+                r1, r2 = st.rows(2)
+                with r1:
+                    method = st.selectbox(
+                        "탐지 알고리즘",
+                        [
+                            "Ensemble",
+                            "Isolation Forest",
+                            "Robust Z-Score",
+                            "PCA Reconstruction",
+                        ],
+                    )
+                with r2:
+                    use_manual_threshold = st.selectbox(
                     "임계값 방식",
                     ["자동", "수동 분위수"],
                 )
 
-            manual_q = st.number_input(
-                "수동 분위수(%)",
-                min_value=50.0,
-                max_value=99.9,
-                value=95.0,
-                step=0.1,
-                disabled=not use_manual_threshold,
-            )
-
-            threshold_mode = "수동 분위수" if use_manual_threshold else "자동"
+            with c2:
+                r1, r2 = st.rows(2)
+                with r1:
+                    contamination = st.number_input(
+                        "예상 이상 비율",
+                        min_value=0.001,
+                        max_value=0.300,
+                        value=0.050,
+                        step=0.005,
+                        format="%.3f",
+                    )
+                with r2:
+                    manual_q = st.number_input(
+                        "수동 분위수(%)",
+                        min_value=50.0,
+                        max_value=99.9,
+                        value=95.0,
+                        step=0.1,
+                        disabled=not use_manual_threshold,
+                    )
+        
+                    threshold_mode = "수동 분위수" if use_manual_threshold else "자동"
 
     # ========================================================
     # RIGHT : 3. 세부 설정
     # ========================================================
     with right_panel:
 
-        with st.container(border=True):
+        with st.container(border=True, height=500):
             st.markdown("#### 3. 세부 설정")
 
             c3, c4 = st.columns(2)
