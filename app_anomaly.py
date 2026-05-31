@@ -22,7 +22,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.metrics import auc, precision_recall_curve, roc_curve
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from statsmodels.stats.diagnostic import acorr_ljungbox
-from statsmodels.tsa.stattools import adfuller
 
 warnings.filterwarnings("ignore")
 
@@ -332,41 +331,38 @@ def detect_anomalies(
 # ------------------------------------------------------------
 # 4. 통계 진단 / 평가 지표
 # ------------------------------------------------------------
-def calc_stationarity_summary(df: pd.DataFrame, max_cols: int = 15) -> pd.DataFrame:
+def calc_missing_summary(df: pd.DataFrame) -> pd.DataFrame:
+
     rows = []
 
-    for col in df.columns[:max_cols]:
-        s = df[col].dropna()
+    total = len(df)
 
-        if len(s) < 12:
-            rows.append(
-                {
-                    "변수": col,
-                    "ADF p-value": np.nan,
-                    "판정": "데이터 부족",
-                }
-            )
-            continue
+    for col in df.columns:
 
-        try:
-            p = adfuller(s, autolag="AIC")[1]
-            rows.append(
-                {
-                    "변수": col,
-                    "ADF p-value": p,
-                    "판정": "정상성 있음" if p < 0.05 else "비정상 가능",
-                }
-            )
-        except Exception:
-            rows.append(
-                {
-                    "변수": col,
-                    "ADF p-value": np.nan,
-                    "판정": "계산 실패",
-                }
-            )
+        missing_count = df[col].isna().sum()
+        missing_ratio = (missing_count / total) * 100
 
-    return pd.DataFrame(rows)
+        rows.append(
+            {
+                "변수": col,
+                "결측 개수": int(missing_count),
+                "결측 비율(%)": round(missing_ratio, 2),
+                "상태": (
+                    "정상"
+                    if missing_ratio == 0
+                    else "결측 존재"
+                ),
+            }
+        )
+
+    out = pd.DataFrame(rows)
+
+    out = out.sort_values(
+        "결측 비율(%)",
+        ascending=False,
+    )
+
+    return out
 
 
 def calc_high_corr_pairs(df: pd.DataFrame, threshold: float = 0.7) -> pd.DataFrame:
@@ -825,7 +821,7 @@ try:
             manual_quantile=manual_q,
         )
 
-        stat_df = calc_stationarity_summary(ts_df)
+        missing_df = calc_missing_summary(raw_df)
         high_corr_df = calc_high_corr_pairs(ts_df, threshold=corr_threshold)
         contrib_df = feature_contribution(ts_df, result["is_anomaly"])
         lb = calc_ljungbox_summary(result["anomaly_score"])
@@ -887,9 +883,10 @@ with tab1:
         )
 
     with c2:
-        st.markdown("#### 변수별 정상성 검정")
+        st.markdown("#### 변수별 결측 분석")
+
         st.dataframe(
-            stat_df,
+            missing_df,
             use_container_width=True,
             hide_index=True,
             height=300,
@@ -905,7 +902,7 @@ with tab1:
         high_corr_display = high_corr_df.copy()
         high_corr_display = high_corr_display.astype(str)
     
-        st.table(high_corr_display)
+        st.table(high_corr_display.head()
 
     with c4:
         st.markdown("#### 상관관계 Heatmap")
