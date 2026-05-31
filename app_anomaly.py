@@ -22,6 +22,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.metrics import auc, precision_recall_curve, roc_curve
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.tsa.stattools import acf
 
 warnings.filterwarnings("ignore")
 
@@ -364,6 +365,75 @@ def calc_missing_summary(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
+def calc_acf_summary(
+    df: pd.DataFrame,
+    max_lag: int = 48,
+    top_k: int = 10,
+) -> pd.DataFrame:
+
+    rows = []
+
+    for col in df.columns[:top_k]:
+
+        s = df[col].dropna()
+
+        if len(s) < max_lag + 5:
+            continue
+
+        try:
+            acf_values = acf(
+                s,
+                nlags=max_lag,
+                fft=True,
+            )
+
+            # lag 0 제외
+            lag_values = acf_values[1:]
+
+            best_lag = int(np.argmax(np.abs(lag_values)) + 1)
+            best_corr = float(lag_values[best_lag - 1])
+
+            if abs(best_corr) >= 0.7:
+                interpretation = "강한 주기/반복 패턴"
+            elif abs(best_corr) >= 0.4:
+                interpretation = "중간 수준 자기상관"
+            else:
+                interpretation = "약한 자기상관"
+
+            rows.append(
+                {
+                    "변수": col,
+                    "주요 Lag": best_lag,
+                    "자기상관": round(best_corr, 3),
+                    "추천 Rolling Window": best_lag,
+                    "해석": interpretation,
+                }
+            )
+
+        except Exception:
+            continue
+
+    if len(rows) == 0:
+        return pd.DataFrame(
+            {
+                "변수": ["분석 실패"],
+                "주요 Lag": ["-"],
+                "자기상관": ["-"],
+                "추천 Rolling Window": ["-"],
+                "해석": ["데이터 부족"],
+            }
+        )
+
+    out = pd.DataFrame(rows)
+
+    out["정렬용"] = out["자기상관"].abs()
+
+    out = out.sort_values(
+        "정렬용",
+        ascending=False,
+    ).drop(columns=["정렬용"])
+
+    return out
 
 def calc_high_corr_pairs(df: pd.DataFrame, threshold: float = 0.7) -> pd.DataFrame:
     corr = df.corr(numeric_only=True)
@@ -823,6 +893,7 @@ try:
 
         missing_df = calc_missing_summary(raw_df)
         high_corr_df = calc_high_corr_pairs(ts_df, threshold=corr_threshold)
+        acf_df = calc_acf_summary(ts_df)
         contrib_df = feature_contribution(ts_df, result["is_anomaly"])
         lb = calc_ljungbox_summary(result["anomaly_score"])
 
@@ -897,6 +968,7 @@ with tab1:
     c3, c4 = st.columns([1, 1], gap="medium")
 
     with c3:
+        
         st.markdown("#### 높은 상관관계 변수쌍")
     
         high_corr_display = high_corr_df.copy()
@@ -905,13 +977,22 @@ with tab1:
         st.table(high_corr_display)
 
     with c4:
-        st.markdown("#### 상관관계 Heatmap")
 
-        corr_cols = ts_df.columns[: min(25, len(ts_df.columns))]
-
-        st.plotly_chart(
-            plot_correlation_heatmap(ts_df[corr_cols]),
+        st.markdown("#### ACF 기반 Lag 분석")
+    
+        st.dataframe(
+            acf_df,
             use_container_width=True,
+            hide_index=True,
+            height=300,
+        )
+    
+        st.caption(
+            """
+            자기상관이 강한 lag는
+            반복 패턴이나 주기성을 의미.
+            Rolling window 설정 시 참고 가능.
+            """
         )
 
 # ============================================================
