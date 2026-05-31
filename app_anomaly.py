@@ -789,22 +789,11 @@ with st.container(border=True):
         with st.container(border=True, height=240):
             st.markdown("#### 분석 설정")
 
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
 
             with c1:
                 method = "Ensemble"
-            
-                st.markdown(
-                    "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 모델로 이상 탐지"
-                )
-            
-                threshold_mode = st.radio(
-                    "임계값 방식",
-                    ["자동", "수동 분위수"],
-                    horizontal=True,
-                )
 
-            with c2:
                 contamination = st.number_input(
                     "예상 이상 비율",
                     min_value=0.001,
@@ -814,6 +803,14 @@ with st.container(border=True):
                     format="%.3f",
                 )
 
+            with c2:
+                threshold_mode = st.radio(
+                    "임계값 방식",
+                    ["자동", "수동 분위수"],
+                    horizontal=True,
+                )
+                
+            with c3:
                 manual_q = st.number_input(
                     "수동 분위수(%)",
                     min_value=50.0,
@@ -830,6 +827,10 @@ with st.container(border=True):
 
         with st.container(border=True, height=455):
             st.markdown("#### 세부 설정")
+
+            st.info(
+                    "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 모델로 이상 탐지"
+                )
 
             c3, c4 = st.columns(2)
 
