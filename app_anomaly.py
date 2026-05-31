@@ -792,16 +792,13 @@ with st.container(border=True):
             c1, c2 = st.columns(2)
 
             with c1:
-                method = st.selectbox(
-                    "탐지 알고리즘",
-                    [
-                        "Ensemble",
-                        "Isolation Forest",
-                        "Robust Z-Score",
-                        "PCA Reconstruction",
-                    ],
+                method = "Ensemble"
+            
+                st.markdown("**탐지 방식**")
+                st.info(
+                    "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 방식"
                 )
-
+            
                 threshold_mode = st.radio(
                     "임계값 방식",
                     ["자동", "수동 분위수"],
@@ -1007,7 +1004,7 @@ with tab2:
     with c1:
         with st.container(border=True):
 
-            st.markdown("#### 원본 시계열과 탐지된 이상 시점")
+            st.markdown("#### 탐지된 이상 시점")
 
             st.plotly_chart(
                 plot_multivariate_series(
@@ -1020,9 +1017,9 @@ with tab2:
 
     with c2:
         with st.container(border=True):
-
-            st.markdown("#### 이상 점수 추이")
-
+    
+            st.markdown("#### 모델별 이상 점수 및 최종 점수")
+    
             st.plotly_chart(
                 plot_score(
                     result,
@@ -1030,7 +1027,14 @@ with tab2:
                 ),
                 use_container_width=True,
             )
-
+    
+            st.caption(
+                """
+                각 모델의 이상 점수를 0~1 범위로 정규화한 뒤,
+                평균값을 Final Score로 사용합니다.
+                Threshold 이상인 시점을 최종 이상으로 판단합니다.
+                """
+            )
     c3, c4 = st.columns([1, 1])
 
     with c3:
