@@ -373,29 +373,36 @@ def calc_high_corr_pairs(df: pd.DataFrame, threshold: float = 0.7) -> pd.DataFra
     corr = df.corr(numeric_only=True)
     pairs = []
 
-    cols = corr.columns
+    cols = list(corr.columns)
 
     for i in range(len(cols)):
         for j in range(i + 1, len(cols)):
             value = corr.iloc[i, j]
 
-            if abs(value) >= threshold:
+            if pd.notna(value) and np.isfinite(value) and abs(value) >= threshold:
                 pairs.append(
                     {
-                        "변수 1": cols[i],
-                        "변수 2": cols[j],
-                        "상관계수": value,
-                        "절대값": abs(value),
+                        "변수 1": str(cols[i]),
+                        "변수 2": str(cols[j]),
+                        "상관계수": round(float(value), 4),
                     }
                 )
 
+    if not pairs:
+        return pd.DataFrame(
+            {
+                "변수 1": ["해당 없음"],
+                "변수 2": ["해당 없음"],
+                "상관계수": ["기준 이상 상관관계 없음"],
+            }
+        )
+
     out = pd.DataFrame(pairs)
+    out["정렬용"] = out["상관계수"].abs()
+    out = out.sort_values("정렬용", ascending=False).drop(columns=["정렬용"])
+    out = out.head(50)
 
-    if out.empty:
-        return pd.DataFrame(columns=["변수 1", "변수 2", "상관계수", "절대값"])
-
-    return out.sort_values("절대값", ascending=False)
-
+    return out
 
 def calc_ljungbox_summary(score: pd.Series) -> Dict:
     s = score.dropna()
@@ -894,12 +901,11 @@ with tab1:
 
     with c3:
         st.markdown("#### 높은 상관관계 변수쌍")
-        st.dataframe(
-            high_corr_df,
-            use_container_width=True,
-            hide_index=True,
-            height=420,
-        )
+    
+        high_corr_display = high_corr_df.copy()
+        high_corr_display = high_corr_display.astype(str)
+    
+        st.table(high_corr_display)
 
     with c4:
         st.markdown("#### 상관관계 Heatmap")
