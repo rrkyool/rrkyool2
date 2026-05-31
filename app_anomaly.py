@@ -650,37 +650,32 @@ def plot_confusion(metrics: Dict) -> go.Figure:
 # ------------------------------------------------------------
 # 7. 메인
 # ------------------------------------------------------------
-st.title("다변량 시계열 이상탐지 대시보드")
-st.caption("CSV 업로드 → 자동 전처리 → 이상탐지 → 진단 및 평가 시각화")
 
-# ------------------------------------------------------------
 # 설정 초기화
-# ------------------------------------------------------------
 if "file_hash" not in st.session_state:
     st.session_state["file_hash"] = None
 
 
-# ------------------------------------------------------------
 # 제목
-# ------------------------------------------------------------
 st.title("다변량 시계열 이상탐지 대시보드")
-st.subtitle("C321032 박하율")
+st.markdown("#### C321032 박하율")
+st.caption("CSV 업로드 → 자동 전처리 → 이상탐지 → 진단 및 평가 시각화")
+
 
 # ------------------------------------------------------------
-# 상단 Control Panel
+# 상단 Control Panel 1차 설정
 # ------------------------------------------------------------
 with st.container(border=True):
 
     st.markdown("### 분석 설정")
 
-    # ---------------- 1줄 ----------------
     c1, c2, c3, c4, c5 = st.columns([1.5, 1, 1, 1, 1])
 
     with c1:
         uploaded_file = st.file_uploader(
             "CSV 파일 업로드",
             type=["csv"],
-            label_visibility="visible"
+            label_visibility="visible",
         )
 
     with c2:
@@ -690,7 +685,7 @@ with st.container(border=True):
                 "Ensemble",
                 "Isolation Forest",
                 "Robust Z-Score",
-                "PCA Reconstruction"
+                "PCA Reconstruction",
             ],
         )
 
@@ -720,17 +715,56 @@ with st.container(border=True):
             disabled=(threshold_mode == "자동"),
         )
 
-    st.markdown("<br>", unsafe_allow_html=True)
+st.divider()
 
-    # ---------------- 2줄 ----------------
-    c6, c7, c8, c9 = st.columns([1, 1, 1, 2])
+
+# ------------------------------------------------------------
+# 파일 업로드 전 안내
+# ------------------------------------------------------------
+if uploaded_file is None:
+    st.info("상단에서 CSV 파일을 업로드하면 분석이 시작됩니다.")
+    st.stop()
+
+
+# ------------------------------------------------------------
+# 파일 로드 및 전처리
+# ------------------------------------------------------------
+try:
+    current_hash = get_file_fingerprint(uploaded_file)
+
+    if st.session_state.get("file_hash") != current_hash:
+        reset_state_for_new_file(current_hash)
+
+    raw_df = load_csv(uploaded_file)
+
+    auto_time_col = find_datetime_column(raw_df)
+
+    ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
+
+    max_window = max(3, min(200, len(ts_df) // 2))
+    default_window = min(24, max(3, len(ts_df) // 10))
+
+except Exception as e:
+    st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
+    st.stop()
+
+
+# ------------------------------------------------------------
+# 상단 Control Panel 2차 설정
+# 파일 업로드 후 ts_df가 생겨야 가능한 설정들
+# ------------------------------------------------------------
+with st.container(border=True):
+
+    st.markdown("### 세부 설정")
+
+    c6, c7, c8, c9, c10 = st.columns([1, 1, 1, 2, 1])
 
     with c6:
         rolling_window = st.number_input(
             "Rolling window",
             min_value=3,
-            max_value=200,
-            value=24,
+            max_value=max_window,
+            value=default_window,
             step=1,
         )
 
@@ -752,55 +786,26 @@ with st.container(border=True):
     with c9:
         selected_cols = st.multiselect(
             "시계열 그래프 표시 변수",
-            options=[],
-            default=[],
-            help="파일 업로드 후 자동 활성화됩니다."
-        )
-
-st.divider()
-
-if uploaded_file is None:
-    st.info("왼쪽에서 CSV 파일을 업로드하면 분석이 시작됩니다.")
-    st.stop()
-
-try:
-    current_hash = get_file_fingerprint(uploaded_file)
-
-    if st.session_state.get("file_hash") != current_hash:
-        reset_state_for_new_file(current_hash)
-
-    raw_df = load_csv(uploaded_file)
-
-    auto_time_col = find_datetime_column(raw_df)
-
-    ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
-
-    max_window = max(3, min(200, len(ts_df) // 2))
-    default_window = min(24, max(3, len(ts_df) // 10))
-
-    with st.sidebar:
-        rolling_window = st.number_input(
-            "Rolling window",
-            min_value=3,
-            max_value=max_window,
-            value=default_window,
-            step=1,
-        )
-
-        selected_cols = st.multiselect(
-            "시계열 그래프 표시 변수",
             list(ts_df.columns),
             default=list(ts_df.columns[: min(4, len(ts_df.columns))]),
         )
 
+    with c10:
         top_n = st.number_input(
-            "기여도 표시 변수 수",
+            "기여도 변수 수",
             min_value=3,
             max_value=min(30, len(ts_df.columns)),
             value=min(12, len(ts_df.columns)),
             step=1,
         )
 
+st.divider()
+
+
+# ------------------------------------------------------------
+# 이상탐지 실행
+# ------------------------------------------------------------
+try:
     with st.spinner("이상탐지 수행 중..."):
         result, score_detail = detect_anomalies(
             ts_df,
