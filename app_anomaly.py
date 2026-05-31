@@ -647,11 +647,11 @@ def plot_confusion(metrics: Dict) -> go.Figure:
 
     return fig
 
+
 # ------------------------------------------------------------
 # 7. 메인
 # ------------------------------------------------------------
 
-# 설정 초기화
 if "file_hash" not in st.session_state:
     st.session_state["file_hash"] = None
 
@@ -663,35 +663,65 @@ st.caption("CSV 업로드 → 자동 전처리 → 이상탐지 → 진단 및 �
 
 
 # ------------------------------------------------------------
-# 상단 Control Panel 1차 설정
+# 상단 통합 Control Panel
 # ------------------------------------------------------------
 with st.container(border=True):
 
-    st.markdown("### 분석 설정")
+    st.markdown("### 데이터 및 분석 조건 설정")
 
-    # ------------------------------------------------------------
-    # 상단 통합 Control Panel
-    # ------------------------------------------------------------
-    left_panel, right_panel = st.columns([1.2, 1])
-    
-    # ============================================================
+    # --------------------------------------------------------
+    # 외부 영역: 파일 업로드
+    # --------------------------------------------------------
+    uploaded_file = st.file_uploader(
+        "CSV 파일 업로드",
+        type=["csv"],
+        help="파일이 변경되면 자동으로 새로운 이상탐지를 수행합니다.",
+    )
+
+    if uploaded_file is None:
+        st.info("CSV 파일을 업로드하면 분석 설정과 세부 설정이 활성화됩니다.")
+        st.stop()
+
+    # --------------------------------------------------------
+    # 파일 업로드 후 데이터 로드
+    # --------------------------------------------------------
+    try:
+        current_hash = get_file_fingerprint(uploaded_file)
+
+        if st.session_state.get("file_hash") != current_hash:
+            reset_state_for_new_file(current_hash)
+
+        raw_df = load_csv(uploaded_file)
+
+        auto_time_col = find_datetime_column(raw_df)
+
+        ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
+
+        max_window = max(3, min(200, len(ts_df) // 2))
+        default_window = min(24, max(3, len(ts_df) // 10))
+
+    except Exception as e:
+        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
+        st.stop()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # 내부 영역: 분석 설정 / 세부 설정
+    # --------------------------------------------------------
+    left_panel, right_panel = st.columns([1.15, 1])
+
+    # ========================================================
     # LEFT : 분석 설정
-    # ============================================================
+    # ========================================================
     with left_panel:
-    
         with st.container(border=True):
-    
-            st.markdown("### 분석 설정")
-    
-            c1, c2 = st.columns([1.5, 1])
-    
+
+            st.markdown("#### 분석 설정")
+
+            c1, c2 = st.columns(2)
+
             with c1:
-                uploaded_file = st.file_uploader(
-                    "CSV 파일 업로드",
-                    type=["csv"],
-                )
-    
-            with c2:
                 method = st.selectbox(
                     "탐지 알고리즘",
                     [
@@ -701,10 +731,8 @@ with st.container(border=True):
                         "PCA Reconstruction",
                     ],
                 )
-    
-            c3, c4, c5 = st.columns(3)
-    
-            with c3:
+
+            with c2:
                 contamination = st.number_input(
                     "예상 이상 비율",
                     min_value=0.001,
@@ -713,14 +741,16 @@ with st.container(border=True):
                     step=0.005,
                     format="%.3f",
                 )
-    
-            with c4:
+
+            c3, c4 = st.columns(2)
+
+            with c3:
                 threshold_mode = st.selectbox(
                     "임계값 방식",
                     ["자동", "수동 분위수"],
                 )
-    
-            with c5:
+
+            with c4:
                 manual_q = st.number_input(
                     "수동 분위수(%)",
                     min_value=50.0,
@@ -729,20 +759,18 @@ with st.container(border=True):
                     step=0.1,
                     disabled=(threshold_mode == "자동"),
                 )
-    
-    
-    # ============================================================
+
+    # ========================================================
     # RIGHT : 세부 설정
-    # ============================================================
+    # ========================================================
     with right_panel:
-    
         with st.container(border=True):
-    
-            st.markdown("### 세부 설정")
-    
-            c6, c7 = st.columns(2)
-    
-            with c6:
+
+            st.markdown("#### 세부 설정")
+
+            c5, c6 = st.columns(2)
+
+            with c5:
                 rolling_window = st.number_input(
                     "Rolling window",
                     min_value=3,
@@ -750,8 +778,8 @@ with st.container(border=True):
                     value=default_window,
                     step=1,
                 )
-    
-            with c7:
+
+            with c6:
                 corr_threshold = st.number_input(
                     "상관관계 표시 기준",
                     min_value=0.1,
@@ -759,18 +787,18 @@ with st.container(border=True):
                     value=0.7,
                     step=0.05,
                 )
-    
+
             include_rolling = st.checkbox(
                 "Rolling 통계 feature 포함",
                 value=True,
             )
-    
+
             selected_cols = st.multiselect(
                 "시계열 그래프 표시 변수",
                 list(ts_df.columns),
                 default=list(ts_df.columns[: min(4, len(ts_df.columns))]),
             )
-    
+
             top_n = st.number_input(
                 "기여도 변수 수",
                 min_value=3,
@@ -778,39 +806,10 @@ with st.container(border=True):
                 value=min(12, len(ts_df.columns)),
                 step=1,
             )
-    
-    st.divider()
 
-# ------------------------------------------------------------
-# 파일 업로드 전 안내
-# ------------------------------------------------------------
-if uploaded_file is None:
-    st.info("상단에서 CSV 파일을 업로드하면 분석이 시작됩니다.")
-    st.stop()
+st.divider()
 
 
-# ------------------------------------------------------------
-# 파일 로드 및 전처리
-# ------------------------------------------------------------
-try:
-    current_hash = get_file_fingerprint(uploaded_file)
-
-    if st.session_state.get("file_hash") != current_hash:
-        reset_state_for_new_file(current_hash)
-
-    raw_df = load_csv(uploaded_file)
-
-    auto_time_col = find_datetime_column(raw_df)
-
-    ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
-
-    max_window = max(3, min(200, len(ts_df) // 2))
-    default_window = min(24, max(3, len(ts_df) // 10))
-
-except Exception as e:
-    st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
-    st.stop()
-    
 # ------------------------------------------------------------
 # 이상탐지 실행
 # ------------------------------------------------------------
