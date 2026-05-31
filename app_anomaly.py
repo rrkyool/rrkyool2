@@ -789,7 +789,7 @@ with st.container(border=True):
         with st.container(border=True, height=240):
             st.markdown("#### 분석 설정")
 
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
 
             with c1:
                 method = "Ensemble"
@@ -810,15 +810,15 @@ with st.container(border=True):
                     horizontal=True,
                 )
                 
-            with c3:
-                manual_q = st.number_input(
-                    "수동 분위수(%)",
-                    min_value=50.0,
-                    max_value=99.9,
-                    value=95.0,
-                    step=0.1,
-                    disabled=(threshold_mode == "자동"),
-                )
+            
+            manual_q = st.number_input(
+                "수동 분위수(%)",
+                min_value=50.0,
+                max_value=99.9,
+                value=95.0,
+                step=0.1,
+                disabled=(threshold_mode == "자동"),
+            )
 
     # ========================================================
     # RIGHT : 3. 세부 설정
