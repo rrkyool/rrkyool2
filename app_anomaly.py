@@ -867,7 +867,7 @@ tab1, tab2, tab3 = st.tabs([
 # ============================================================
 with tab1:
 
-    st.subheader("데이터 업로드 후 기본 분석")
+    st.subheader("데이터 기본 분석")
 
     c1, c2 = st.columns([1, 1])
 
@@ -883,36 +883,6 @@ with tab1:
 
     with c2:
         with st.container(border=True):
-    
-            st.markdown("#### 수치형 변수 요약")
-    
-            summary_df = ts_df.describe().T.reset_index()
-            summary_df = summary_df.rename(columns={"index": "변수"})
-    
-            # 표시 안정성을 위해 숫자 반올림
-            numeric_cols = summary_df.select_dtypes(include=[np.number]).columns
-            summary_df[numeric_cols] = summary_df[numeric_cols].round(2)
-    
-            # 너무 많은 행을 한 번에 렌더링하지 않도록 제한
-            max_summary_rows = 50
-    
-            st.dataframe(
-                summary_df.head(max_summary_rows),
-                use_container_width=True,
-                hide_index=True,
-                height=360,
-            )
-    
-            if len(summary_df) > max_summary_rows:
-                st.caption(
-                    f"변수가 많아 상위 {max_summary_rows}개 변수만 표시했습니다. "
-                    f"전체 변수 수: {len(summary_df)}"
-                )
-    
-    c3, c4 = st.columns([1, 1])
-
-    with c3:
-        with st.container(border=True):
 
             st.markdown("#### 변수별 정상성 검정")
 
@@ -921,8 +891,10 @@ with tab1:
                 use_container_width=True,
                 hide_index=True,
             )
+    
+    c3, c4 = st.columns([1, 1])
 
-    with c4:
+    with c3:
         with st.container(border=True):
 
             st.markdown("#### 높은 상관관계 변수쌍")
@@ -933,7 +905,8 @@ with tab1:
                 hide_index=True,
             )
 
-    with st.container(border=True):
+    with c4:
+        with st.container(border=True):
 
         st.markdown("#### 상관관계 Heatmap")
 
@@ -943,7 +916,6 @@ with tab1:
             plot_correlation_heatmap(ts_df[corr_cols]),
             use_container_width=True,
         )
-
 
 # ============================================================
 # TAB 2 : 이상탐지 결과 분석
