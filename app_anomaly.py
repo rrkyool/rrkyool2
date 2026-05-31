@@ -677,7 +677,7 @@ with st.container(border=True):
         # ----------------------------------------------------
         # 1. 데이터 업로드
         # ----------------------------------------------------
-        with st.container(border=True, height=150):
+        with st.container(border=True, height=200):
             uploaded_file = st.file_uploader(
                 "CSV 파일 업로드",
                 type=["csv"],
@@ -713,8 +713,8 @@ with st.container(border=True):
         # ----------------------------------------------------
         # 2. 분석 설정
         # ----------------------------------------------------
-        with st.container(border=True, height=280):
-            st.markdown("#### 2. 분석 설정")
+        with st.container(border=True, height=240):
+            st.markdown("#### 분석 설정")
 
             c1, c2 = st.columns(2)
 
@@ -760,7 +760,7 @@ with st.container(border=True):
     with right_panel:
 
         with st.container(border=True, height=450):
-            st.markdown("#### 3. 세부 설정")
+            st.markdown("#### 세부 설정")
 
             c3, c4 = st.columns(2)
 
