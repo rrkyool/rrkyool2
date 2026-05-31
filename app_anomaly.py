@@ -795,7 +795,7 @@ with st.container(border=True):
                 method = "Ensemble"
             
                 st.markdown("**탐지 방식**")
-                st.info(
+                st.markdown(
                     "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 방식"
                 )
             
