@@ -16,10 +16,14 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from scipy.stats import median_abs_deviation
 from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
-from sklearn.metrics import auc, precision_recall_curve, roc_curve
+from sklearn.metrics import (
+    average_precision_score,
+    precision_recall_curve,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.stattools import acf
@@ -230,18 +234,27 @@ def make_feature_matrix(df: pd.DataFrame, rolling_window: int, include_rolling: 
     return feature_df
 
 
-def minmax(s: np.ndarray) -> np.ndarray:
+def rank_normalize(s: np.ndarray) -> np.ndarray:
+    """순위 기반 [0,1] 정규화.
+
+    이상 점수는 heavy-tail이라 minmax로 정규화하면 극단값 하나가 나머지를
+    0 근처로 압축시킨다. 순위로 변환하면 각 모델 점수가 균등 분포가 되어,
+    앙상블 평균이 특정 모델의 스케일이나 극단값에 휘둘리지 않는다.
+    """
     s = np.asarray(s, dtype=float)
-    return (s - np.nanmin(s)) / (np.nanmax(s) - np.nanmin(s) + 1e-12)
+    ranks = pd.Series(s).rank(method="average").to_numpy()
+    return (ranks - 1.0) / (len(ranks) - 1.0 + 1e-12)
 
 
-def score_isolation_forest(features: pd.DataFrame, contamination: float) -> np.ndarray:
+def score_isolation_forest(features: pd.DataFrame) -> np.ndarray:
     scaler = StandardScaler()
     x = scaler.fit_transform(features.values)
 
+    # contamination은 decision_function의 상수 offset만 바꾸며, 이후 순위
+    # 정규화에서 상쇄되어 점수에 영향이 없으므로 "auto"로 둔다.
     model = IsolationForest(
         n_estimators=300,
-        contamination=contamination,
+        contamination="auto",
         random_state=RANDOM_STATE,
         n_jobs=-1,
     )
@@ -282,11 +295,9 @@ def score_pca_reconstruction(features: pd.DataFrame, variance_keep: float = 0.90
 def detect_anomalies(
     df: pd.DataFrame,
     method: str,
-    contamination: float,
+    target_ratio: float,
     rolling_window: int,
     include_rolling: bool,
-    threshold_mode: str,
-    manual_quantile: float,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     features = make_feature_matrix(df, rolling_window, include_rolling)
@@ -294,23 +305,23 @@ def detect_anomalies(
     scores = {}
 
     if method in ["Isolation Forest", "Ensemble"]:
-        scores["Isolation Forest"] = minmax(score_isolation_forest(features, contamination))
+        scores["Isolation Forest"] = rank_normalize(score_isolation_forest(features))
 
     if method in ["Robust Z-Score", "Ensemble"]:
-        scores["Robust Z-Score"] = minmax(score_robust_z(df))
+        scores["Robust Z-Score"] = rank_normalize(score_robust_z(df))
 
     if method in ["PCA Reconstruction", "Ensemble"]:
-        scores["PCA Reconstruction"] = minmax(score_pca_reconstruction(features))
+        scores["PCA Reconstruction"] = rank_normalize(score_pca_reconstruction(features))
 
     if method == "Ensemble":
         final_score = np.mean(np.vstack(list(scores.values())), axis=0)
     else:
         final_score = list(scores.values())[0]
 
-    if threshold_mode == "자동":
-        threshold = np.quantile(final_score, 1 - contamination)
-    else:
-        threshold = np.quantile(final_score, manual_quantile / 100)
+    # 임계값은 "상위 target_ratio 비율"을 이상으로 보는 단일 분위수 컷.
+    # 기존의 contamination(자동) / manual_quantile(수동)은 동일한 분위수 컷을
+    # 두 이름으로 중복 노출한 것이라 하나로 통합했다.
+    threshold = np.quantile(final_score, 1 - target_ratio)
 
     is_anomaly = final_score >= threshold
 
@@ -514,18 +525,6 @@ def anomaly_quality_summary(
     mean_score = result["anomaly_score"].mean()
     max_score = result["anomaly_score"].max()
 
-    if anomaly_mask.sum() > 0:
-        mean_anomaly_score = result.loc[anomaly_mask, "anomaly_score"].mean()
-    else:
-        mean_anomaly_score = np.nan
-
-    if (~anomaly_mask).sum() > 0:
-        mean_normal_score = result.loc[~anomaly_mask, "anomaly_score"].mean()
-    else:
-        mean_normal_score = np.nan
-
-    score_gap = mean_anomaly_score - mean_normal_score
-
     base_models = [
         col for col in score_detail.columns
         if col != "Final Score"
@@ -562,9 +561,6 @@ def anomaly_quality_summary(
         "anomaly_ratio": anomaly_ratio,
         "mean_score": mean_score,
         "max_score": max_score,
-        "mean_anomaly_score": mean_anomaly_score,
-        "mean_normal_score": mean_normal_score,
-        "score_gap": score_gap,
         "avg_agreement_anomaly": avg_agreement_anomaly,
         "high_confidence_ratio": high_confidence_ratio,
     }
@@ -605,6 +601,138 @@ def make_model_agreement_table(
         )
 
     return pd.DataFrame(rows)
+
+
+# ------------------------------------------------------------
+# 4-b. 합성 주입 기반 정량 평가 (라벨이 없는 환경의 통제된 점검)
+# ------------------------------------------------------------
+def inject_synthetic_anomalies(
+    df: pd.DataFrame,
+    point_ratio: float = 0.01,
+    n_segments: int = 3,
+    segment_len: int = 8,
+    magnitude: float = 4.0,
+    seed: int = RANDOM_STATE,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """데이터 복사본에 알려진 이상을 주입해 의사-정답 라벨을 만든다.
+
+    - point spike : 무작위 시점·무작위 변수 일부에 magnitude*std 크기의 충격
+    - collective  : 연속 구간 전체를 magnitude*std 만큼 이동(레짐 변화 모사)
+
+    주의: 원본에 이미 실제 이상이 섞여 있을 수 있어, 주입되지 않은 시점이
+    모두 '정상'이라는 보장은 없다. 따라서 절대 성능이 아니라 동일 파이프라인의
+    탐지 민감도를 보는 통제된 점검으로 해석해야 한다.
+    """
+    rng = np.random.RandomState(seed)
+    values = df.to_numpy(dtype=float).copy()
+    n, p = values.shape
+    labels = np.zeros(n, dtype=bool)
+
+    col_std = df.std(axis=0).replace(0, 1.0).to_numpy()
+
+    # 1) point spikes
+    n_points = max(1, int(n * point_ratio))
+    point_idx = rng.choice(n, size=min(n_points, n), replace=False)
+    for t in point_idx:
+        k = rng.randint(1, max(2, p // 2) + 1)
+        cols = rng.choice(p, size=k, replace=False)
+        sign = rng.choice([-1.0, 1.0], size=k)
+        values[t, cols] += sign * magnitude * col_std[cols]
+        labels[t] = True
+
+    # 2) collective segments
+    if n > segment_len + 2:
+        for _ in range(n_segments):
+            start = rng.randint(0, n - segment_len)
+            end = start + segment_len
+            k = rng.randint(1, max(2, p // 2) + 1)
+            cols = rng.choice(p, size=k, replace=False)
+            shift = rng.choice([-1.0, 1.0]) * magnitude * col_std[cols]
+            values[start:end, cols] += shift
+            labels[start:end] = True
+
+    contaminated = pd.DataFrame(values, index=df.index, columns=df.columns)
+    return contaminated, labels
+
+
+def point_adjust_predictions(pred: np.ndarray, label: np.ndarray) -> np.ndarray:
+    """Xu et al.(2018) point-adjust 규칙.
+
+    정답 이상 '구간' 안에서 한 시점이라도 탐지되면, 그 구간 전체를 탐지한
+    것으로 간주한다. 시계열 이상탐지 평가의 표준 관행.
+    """
+    pred = np.asarray(pred, dtype=bool).copy()
+    label = np.asarray(label, dtype=bool)
+    n = len(label)
+    i = 0
+    while i < n:
+        if label[i]:
+            j = i
+            while j < n and label[j]:
+                j += 1
+            if pred[i:j].any():
+                pred[i:j] = True
+            i = j
+        else:
+            i += 1
+    return pred
+
+
+def evaluate_with_synthetic_injection(
+    df: pd.DataFrame,
+    method: str,
+    target_ratio: float,
+    rolling_window: int,
+    include_rolling: bool,
+) -> Optional[Dict]:
+    """주입한 이상을 정답으로 두고 동일 파이프라인을 재실행해 정량 평가."""
+    try:
+        contaminated, labels = inject_synthetic_anomalies(df)
+
+        if labels.sum() == 0 or labels.all():
+            return None
+
+        res, _ = detect_anomalies(
+            contaminated,
+            method=method,
+            target_ratio=target_ratio,
+            rolling_window=rolling_window,
+            include_rolling=include_rolling,
+        )
+
+        score = res["anomaly_score"].to_numpy()
+        pred = res["is_anomaly"].to_numpy()
+
+        pr_auc = float(average_precision_score(labels, score))
+        roc_auc = float(roc_auc_score(labels, score))
+
+        precision_raw, recall_raw, f1_raw, _ = precision_recall_fscore_support(
+            labels, pred, average="binary", zero_division=0
+        )
+
+        pa_pred = point_adjust_predictions(pred, labels)
+        precision_pa, recall_pa, f1_pa, _ = precision_recall_fscore_support(
+            labels, pa_pred, average="binary", zero_division=0
+        )
+
+        prec_curve, rec_curve, _ = precision_recall_curve(labels, score)
+
+        return {
+            "pr_auc": pr_auc,
+            "roc_auc": roc_auc,
+            "f1_raw": float(f1_raw),
+            "precision_raw": float(precision_raw),
+            "recall_raw": float(recall_raw),
+            "f1_pa": float(f1_pa),
+            "precision_pa": float(precision_pa),
+            "recall_pa": float(recall_pa),
+            "n_injected": int(labels.sum()),
+            "baseline": float(labels.mean()),
+            "prec_curve": prec_curve,
+            "rec_curve": rec_curve,
+        }
+    except Exception:
+        return None
 
 # ------------------------------------------------------------
 # 5. 시각화 함수
@@ -841,6 +969,41 @@ def plot_score_gap(result: pd.DataFrame) -> go.Figure:
 
     return fig
 
+def plot_pr_curve(eval_result: Dict) -> go.Figure:
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=eval_result["rec_curve"],
+            y=eval_result["prec_curve"],
+            mode="lines",
+            name=f"PR (AP={eval_result['pr_auc']:.3f})",
+            line=dict(color="navy", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(0,0,128,0.08)",
+        )
+    )
+
+    fig.add_hline(
+        y=eval_result["baseline"],
+        line_dash="dash",
+        line_color="#999",
+        annotation_text=f"무작위 기준선 ({eval_result['baseline']:.3f})",
+    )
+
+    fig.update_layout(
+        height=320,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="Recall",
+        yaxis_title="Precision",
+        xaxis=dict(range=[0, 1.0]),
+        yaxis=dict(range=[0, 1.02]),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+
+    return fig
+
 # ------------------------------------------------------------
 # 7. 메인
 # ------------------------------------------------------------
@@ -910,35 +1073,23 @@ with st.container(border=True):
         with st.container(border=True, height=240):
             st.markdown("#### 분석 설정")
 
-            c1, c2 = st.columns(2)
+            method = "Ensemble"
 
-            with c1:
-                method = "Ensemble"
+            target_ratio = st.slider(
+                "목표 이상 비율 (상위 분위수 컷)",
+                min_value=0.005,
+                max_value=0.300,
+                value=0.050,
+                step=0.005,
+                format="%.3f",
+                help="최종 이상 점수의 상위 이 비율을 이상으로 판정합니다. "
+                     "예: 0.05 → 상위 5%(=95분위) 이상.",
+            )
 
-                contamination = st.number_input(
-                    "예상 이상 비율",
-                    min_value=0.001,
-                    max_value=0.300,
-                    value=0.050,
-                    step=0.005,
-                    format="%.3f",
-                )
-
-            with c2:
-                threshold_mode = st.radio(
-                    "임계값 방식",
-                    ["자동", "수동 분위수"],
-                    horizontal=True,
-                )
-                
-            
-            manual_q = st.number_input(
-                "수동 분위수(%)",
-                min_value=50.0,
-                max_value=99.9,
-                value=95.0,
-                step=0.1,
-                disabled=(threshold_mode == "자동"),
+            st.caption(
+                f"최종 이상 점수의 상위 **{target_ratio * 100:.1f}%** 시점을 "
+                "이상으로 판정합니다. 기존 contamination(자동) / 수동 분위수 "
+                "컨트롤은 동일한 분위수 컷을 중복 노출한 것이라 하나로 통합했습니다."
             )
 
     # ========================================================
@@ -1002,11 +1153,17 @@ try:
         result, score_detail = detect_anomalies(
             ts_df,
             method=method,
-            contamination=contamination,
+            target_ratio=target_ratio,
             rolling_window=int(rolling_window),
             include_rolling=include_rolling,
-            threshold_mode=threshold_mode,
-            manual_quantile=manual_q,
+        )
+
+        eval_result = evaluate_with_synthetic_injection(
+            ts_df,
+            method=method,
+            target_ratio=target_ratio,
+            rolling_window=int(rolling_window),
+            include_rolling=include_rolling,
         )
 
         missing_df = calc_missing_summary(raw_df)
@@ -1161,7 +1318,7 @@ with tab2:
     
             st.caption(
                 """
-                각 모델의 이상 점수를 0~1 범위로 정규화한 뒤,
+                각 모델의 이상 점수를 순위 기반으로 [0,1] 정규화한 뒤,
                 평균값을 Final Score로 사용합니다.
                 Threshold 이상인 시점을 최종 이상으로 판단합니다.
                 """
@@ -1232,13 +1389,61 @@ with tab3:
 
     st.markdown(
         """
-        실제 이상치 정답 라벨이 없는 비지도 이상탐지 환경이므로
-        탐지 결과의 구조적 타당성,
-        점수 분리도, 모델 간 일치도, 시간적 연속성을 중심으로 결과를 검토합니다.
+        실제 정답 라벨이 없는 비지도 환경이므로 평가를 두 갈래로 나눕니다.
+        **(1) 합성 이상 주입 기반 정량 평가** — 알려진 이상을 주입해 PR-AUC와
+        point-adjusted F1로 탐지기의 민감도를 측정합니다.
+        **(2) 구조적 진단** — 점수 분포, 모델 간 일치도 등 내부 일관성을 검토합니다.
         """
     )
 
-    m1, m2, m3, m4, m5 = st.columns(5)
+    # ----------------------------------------------------
+    # (1) 합성 이상 주입 기반 정량 평가
+    # ----------------------------------------------------
+    with st.container(border=True):
+
+        st.markdown("#### (1) 합성 이상 주입 기반 정량 평가")
+
+        if eval_result is None:
+            st.info("데이터가 짧거나 주입에 실패하여 정량 평가를 건너뛰었습니다.")
+        else:
+            e1, e2, e3, e4 = st.columns(4)
+            e1.metric("PR-AUC (AP)", f"{eval_result['pr_auc']:.3f}")
+            e2.metric("ROC-AUC", f"{eval_result['roc_auc']:.3f}")
+            e3.metric("Point-adjusted F1", f"{eval_result['f1_pa']:.3f}")
+            e4.metric("Raw F1", f"{eval_result['f1_raw']:.3f}")
+
+            cc1, cc2 = st.columns([1.3, 1])
+
+            with cc1:
+                st.plotly_chart(
+                    plot_pr_curve(eval_result),
+                    use_container_width=True,
+                )
+
+            with cc2:
+                st.markdown(
+                    f"""
+                    - 주입한 이상 시점: **{eval_result['n_injected']}개**
+                    - Point-adjusted P / R:
+                      **{eval_result['precision_pa']:.3f} / {eval_result['recall_pa']:.3f}**
+                    - Raw P / R:
+                      **{eval_result['precision_raw']:.3f} / {eval_result['recall_raw']:.3f}**
+                    """
+                )
+
+        st.caption(
+            "원본에 이미 실제 이상이 섞여 있을 수 있어, 주입되지 않은 시점이 "
+            "모두 정상이라는 보장은 없습니다. 따라서 이 수치는 절대 성능이 "
+            "아니라 동일 파이프라인의 탐지 민감도를 보는 통제된 점검으로 "
+            "해석합니다. 시계열 관행에 따라 point-adjusted F1을 함께 제시합니다."
+        )
+
+    # ----------------------------------------------------
+    # (2) 구조적 진단
+    # ----------------------------------------------------
+    st.markdown("#### (2) 구조적 진단")
+
+    m1, m2, m3, m4 = st.columns(4)
 
     m1.metric(
         "탐지 이상 비율",
@@ -1256,13 +1461,6 @@ with tab3:
     )
 
     m4.metric(
-        "이상-정상 점수 차이",
-        f"{quality['score_gap']:.3f}"
-        if not np.isnan(quality["score_gap"])
-        else "N/A"
-    )
-
-    m5.metric(
         "고신뢰 이상 비율",
         f"{quality['high_confidence_ratio']:.1f}%"
         if not np.isnan(quality["high_confidence_ratio"])
@@ -1357,10 +1555,14 @@ with tab3:
 
         st.markdown(
             """
+            - **PR-AUC / point-adjusted F1**(합성 주입)은 탐지기의 민감도를 보는
+              유일한 정량 지표이므로 가장 우선해서 참고합니다.
             - **탐지 이상 비율**이 너무 높으면 과탐지 가능성이 있습니다.
-            - **이상-정상 점수 차이**가 클수록 threshold 기준이 명확합니다.
-            - **고신뢰 이상 비율**은 여러 모델이 동시에 이상으로 판단한 비율입니다.
-            - **Ljung-Box p-value**가 낮으면 이상 점수가 시간적으로 연속되는 구조를 가질 수 있습니다.
-            - 정답 라벨이 없는 환경에서는 이 지표들을 종합하여 탐지 결과의 타당성을 판단합니다.
+            - **고신뢰 이상 비율**은 여러 개별 모델이 동시에 이상으로 판단한
+              비율로, 값이 높을수록 앙상블 내부 일관성이 큽니다.
+            - **Ljung-Box p-value**는 보조 지표입니다. rolling feature 자체가
+              자기상관을 주입하므로, 낮은 p-value를 곧바로 이상의 시간적 군집으로
+              해석하지 않도록 주의합니다.
+            - 정답 라벨이 없는 환경에서는 이 지표들을 종합해 탐지 결과의 타당성을 판단합니다.
             """
         )
