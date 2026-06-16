@@ -740,21 +740,32 @@ def evaluate_with_synthetic_injection(
 def plot_multivariate_series(df: pd.DataFrame, result: pd.DataFrame, selected_cols: List[str]) -> go.Figure:
     fig = go.Figure()
 
+    # 표시용 정규화: 변수마다 스케일이 크게 다르면 공유 y축에서 작은 변수가
+    # 바닥에 깔려 안 보인다. 각 변수를 z-score로 정규화해 '움직임'을 같은
+    # 스케일로 비교한다. (탐지 결과는 원본 기준이며 여기서는 표시값만 바꾼다)
+    disp = df[selected_cols].copy() if selected_cols else df.iloc[:, :0].copy()
+
+    if selected_cols:
+        std = disp.std(ddof=0).replace(0, 1.0)
+        disp = (disp - disp.mean()) / std
+
     for col in selected_cols:
         fig.add_trace(
             go.Scatter(
-                x=df.index,
-                y=df[col],
+                x=disp.index,
+                y=disp[col],
                 mode="lines",
                 name=col,
                 opacity=0.8,
+                customdata=df[col].to_numpy(),
+                hovertemplate="%{fullData.name}: %{customdata:.3g} (정규화 %{y:.2f})<extra></extra>",
             )
         )
 
     anomalies = result[result["is_anomaly"]]
 
     if len(anomalies) > 0 and selected_cols:
-        y_top = df[selected_cols].max(axis=1)
+        y_top = disp.max(axis=1)
 
         fig.add_trace(
             go.Scatter(
@@ -763,6 +774,7 @@ def plot_multivariate_series(df: pd.DataFrame, result: pd.DataFrame, selected_co
                 mode="markers",
                 name="Detected Anomaly",
                 marker=dict(size=9, symbol="x", color="#d62728"),
+                hovertemplate="이상 시점<extra></extra>",
             )
         )
 
@@ -771,6 +783,7 @@ def plot_multivariate_series(df: pd.DataFrame, result: pd.DataFrame, selected_co
         margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode="x unified",
+        yaxis_title="표시값 (변수별 z-score 정규화)",
     )
 
     return fig
@@ -1257,6 +1270,9 @@ with tab1:
             height=500,
         )
     
+        st.caption(
+            "상관계수가 높은 변수쌍은 PCA Reconstruction 기반 탐지에서 함께 변동하는 구조를 해석하는 데 참고할 수 있습니다."
+        )
         
     with c4:
 
@@ -1298,6 +1314,12 @@ with tab2:
                     selected_cols
                 ),
                 use_container_width=True,
+            )
+
+            st.caption(
+                "변수마다 스케일이 달라, 표시할 때만 각 변수를 z-score로 정규화해 "
+                "움직임을 같은 축에서 비교합니다. 원본값은 선 위에 마우스를 올리면 "
+                "확인할 수 있으며, 이상 판정은 원본 기준으로 수행됩니다."
             )
 
     with c2:
@@ -1427,6 +1449,13 @@ with tab3:
                       **{eval_result['precision_raw']:.3f} / {eval_result['recall_raw']:.3f}**
                     """
                 )
+
+        st.caption(
+            "원본에 이미 실제 이상이 섞여 있을 수 있어, 주입되지 않은 시점이 "
+            "모두 정상이라는 보장은 없습니다. 따라서 이 수치는 절대 성능이 "
+            "아니라 동일 파이프라인의 탐지 민감도를 보는 통제된 점검으로 "
+            "해석합니다. 시계열 관행에 따라 point-adjusted F1을 함께 제시합니다."
+        )
 
     # ----------------------------------------------------
     # (2) 구조적 진단
