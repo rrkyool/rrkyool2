@@ -481,6 +481,66 @@ def calc_high_corr_pairs(df: pd.DataFrame, threshold: float = 0.7) -> pd.DataFra
 
     return out
 
+def suggest_redundant_columns(df: pd.DataFrame, threshold: float = 0.9) -> pd.DataFrame:
+    """상관이 높은 변수쌍에서 중복으로 볼 수 있는 컬럼을 골라낸다.
+
+    그리디 휴리스틱(R caret::findCorrelation과 동일):
+    임계값을 넘는 쌍 중 상관이 가장 높은 쌍을 찾고, 둘 중 '나머지 변수들과
+    평균 상관이 더 높은'(즉 더 중복적인) 쪽을 제외 후보로 지정한다.
+    남은 변수들 사이에 임계값 초과 쌍이 없어질 때까지 반복한다.
+    """
+    corr = df.corr(numeric_only=True).abs()
+    cols = list(corr.columns)
+
+    empty = pd.DataFrame(
+        {
+            "제외 후보": ["해당 없음"],
+            "대표 변수(유지)": ["-"],
+            "상관계수": ["기준 이상 중복 없음"],
+        }
+    )
+
+    if len(cols) < 2:
+        return empty
+
+    corr_arr = corr.to_numpy(dtype=float, copy=True)
+    np.fill_diagonal(corr_arr, 0.0)
+    corr = pd.DataFrame(corr_arr, index=cols, columns=cols)
+
+    remaining = list(cols)
+    dropped = []
+
+    while len(remaining) >= 2:
+        sub = corr.loc[remaining, remaining]
+        max_val = float(sub.values.max())
+
+        if max_val < threshold:
+            break
+
+        i, j = np.unravel_index(np.argmax(sub.values), sub.values.shape)
+        a, b = sub.index[i], sub.columns[j]
+
+        others = [c for c in remaining if c not in (a, b)]
+        mean_a = float(corr.loc[a, others].mean()) if others else 0.0
+        mean_b = float(corr.loc[b, others].mean()) if others else 0.0
+
+        drop, keep = (a, b) if mean_a >= mean_b else (b, a)
+
+        dropped.append(
+            {
+                "제외 후보": str(drop),
+                "대표 변수(유지)": str(keep),
+                "상관계수": round(float(corr.loc[drop, keep]), 4),
+                "타 변수 평균상관": round(max(mean_a, mean_b), 4),
+            }
+        )
+        remaining.remove(drop)
+
+    if not dropped:
+        return empty
+
+    return pd.DataFrame(dropped)
+
 def calc_ljungbox_summary(score: pd.Series) -> Dict:
     s = score.dropna()
     lag = min(12, max(1, len(s) // 5))
@@ -1168,6 +1228,7 @@ try:
 
         missing_df = calc_missing_summary(raw_df)
         high_corr_df = calc_high_corr_pairs(ts_df, threshold=corr_threshold)
+        redundant_df = suggest_redundant_columns(ts_df, threshold=corr_threshold)
         acf_df = calc_acf_summary(ts_df)
         contrib_df = feature_contribution(ts_df, result["is_anomaly"])
         lb = calc_ljungbox_summary(result["anomaly_score"])
@@ -1254,11 +1315,24 @@ with tab1:
             high_corr_display,
             use_container_width=True,
             hide_index=True,
-            height=500,
+            height=250,
         )
-    
+
+        st.markdown("#### 제외 검토 대상(중복) 변수")
+
+        st.dataframe(
+            redundant_df,
+            use_container_width=True,
+            hide_index=True,
+            height=200,
+        )
+
         st.caption(
-            "상관계수가 높은 변수쌍은 PCA Reconstruction 기반 탐지에서 함께 변동하는 구조를 해석하는 데 참고할 수 있습니다."
+            "각 중복 그룹에서 대표 1개만 남기고 나머지를 제외 후보로 제시합니다 "
+            f"(현재 기준 |상관| ≥ {corr_threshold:.2f}). 실제 제거 목적이라면 "
+            "0.9 이상을 쓰는 것이 일반적입니다. 다만 이 목록은 **정보 제공용**으로, "
+            "PCA Reconstruction은 변수 간 상관 구조의 붕괴 자체를 이상 신호로 쓰므로 "
+            "상관 높은 변수를 무작정 제거하면 탐지 신호가 약해질 수 있습니다."
         )
         
     with c4:
