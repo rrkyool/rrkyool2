@@ -292,14 +292,20 @@ def score_pca_reconstruction(features: pd.DataFrame, variance_keep: float = 0.90
     return np.mean((x - x_hat) ** 2, axis=1)
 
 
-def detect_anomalies(
+@st.cache_data(show_spinner=False)
+def compute_anomaly_scores(
     df: pd.DataFrame,
     method: str,
-    target_ratio: float,
     rolling_window: int,
     include_rolling: bool,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> pd.DataFrame:
+    """모델별 순위 정규화 점수와 Final Score를 계산한다.
 
+    여기서 하는 일(IsolationForest 학습, PCA 분해 등)은 무겁지만 target_ratio
+    (임계값)에는 전혀 의존하지 않는다. 따라서 슬라이더로 임계값만 바꿀 때는
+    재실행할 필요가 없다 → @st.cache_data 로 결과를 재사용해 반응 속도를 높인다.
+    임계값 적용은 가벼운 apply_threshold()에서 따로 수행한다.
+    """
     features = make_feature_matrix(df, rolling_window, include_rolling)
 
     scores = {}
@@ -316,27 +322,53 @@ def detect_anomalies(
     if method == "Ensemble":
         final_score = np.mean(np.vstack(list(scores.values())), axis=0)
     else:
-        final_score = list(scores.values())[0]
+        final_score = next(iter(scores.values()))
 
-    # 임계값은 "상위 target_ratio 비율"을 이상으로 보는 단일 분위수 컷.
-    # 기존의 contamination(자동) / manual_quantile(수동)은 동일한 분위수 컷을
-    # 두 이름으로 중복 노출한 것이라 하나로 통합했다.
+    score_detail = pd.DataFrame(scores, index=df.index)
+    score_detail["Final Score"] = final_score
+
+    return score_detail
+
+
+def apply_threshold(
+    score_detail: pd.DataFrame,
+    target_ratio: float,
+) -> pd.DataFrame:
+    """이미 계산된 Final Score에 분위수 컷만 적용한다(경량).
+
+    임계값은 "상위 target_ratio 비율"을 이상으로 보는 단일 분위수 컷이다.
+    기존의 contamination(자동) / manual_quantile(수동)은 동일한 분위수 컷을
+    두 이름으로 중복 노출한 것이라 하나로 통합했다.
+    """
+    final_score = score_detail["Final Score"].to_numpy()
+
     threshold = np.quantile(final_score, 1 - target_ratio)
-
     is_anomaly = final_score >= threshold
 
-    result = pd.DataFrame(
+    return pd.DataFrame(
         {
             "anomaly_score": final_score,
             "threshold": threshold,
             "is_anomaly": is_anomaly,
         },
-        index=df.index,
+        index=score_detail.index,
     )
 
-    score_detail = pd.DataFrame(scores, index=df.index)
-    score_detail["Final Score"] = final_score
 
+def detect_anomalies(
+    df: pd.DataFrame,
+    method: str,
+    target_ratio: float,
+    rolling_window: int,
+    include_rolling: bool,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """점수 계산 + 임계값 적용을 묶은 하위호환 래퍼.
+
+    합성 주입 평가 등 내부에서 한 번에 호출할 때 쓰며, UI 본문은
+    compute_anomaly_scores / apply_threshold 를 따로 호출해 캐싱 이점을 살린다.
+    """
+    score_detail = compute_anomaly_scores(df, method, rolling_window, include_rolling)
+    result = apply_threshold(score_detail, target_ratio)
     return result, score_detail
 
 
@@ -514,6 +546,28 @@ def feature_contribution(df: pd.DataFrame, anomaly_mask: pd.Series) -> pd.DataFr
         .rename(columns={"index": "변수"})
     )
 
+def flag_per_model(
+    score_detail: pd.DataFrame,
+    anomaly_ratio: float,
+) -> pd.DataFrame:
+    """개별 모델 점수에 동일한 분위수 컷을 적용해 모델별 이상 플래그를 만든다.
+
+    'np.quantile로 모델별 임계값을 잡아 플래그를 만든다'는 동일 로직이
+    anomaly_quality_summary / make_model_agreement_table / plot_model_agreement
+    세 곳에 복제돼 있었고, plot_model_agreement는 이를 행 루프 안에서 호출해
+    같은 분위수를 시점·모델 수만큼 중복 계산했다. 이 함수 하나로 통합해
+    각 분위수를 모델당 한 번만 계산하고, 불리언 DataFrame으로 재사용한다.
+    """
+    base_models = [c for c in score_detail.columns if c != "Final Score"]
+
+    flags = pd.DataFrame(index=score_detail.index)
+    for col in base_models:
+        threshold = np.quantile(score_detail[col], 1 - anomaly_ratio)
+        flags[col] = score_detail[col] >= threshold
+
+    return flags
+
+
 def anomaly_quality_summary(
     result: pd.DataFrame,
     score_detail: pd.DataFrame,
@@ -525,21 +579,9 @@ def anomaly_quality_summary(
     mean_score = result["anomaly_score"].mean()
     max_score = result["anomaly_score"].max()
 
-    base_models = [
-        col for col in score_detail.columns
-        if col != "Final Score"
-    ]
+    model_flags = flag_per_model(score_detail, anomaly_mask.mean())
 
-    if len(base_models) > 0:
-        model_flags = pd.DataFrame(index=score_detail.index)
-
-        for col in base_models:
-            threshold = np.quantile(
-                score_detail[col],
-                1 - anomaly_mask.mean()
-            )
-            model_flags[col] = score_detail[col] >= threshold
-
+    if model_flags.shape[1] > 0:
         model_agreement = model_flags.mean(axis=1)
 
         avg_agreement_anomaly = (
@@ -572,20 +614,12 @@ def make_model_agreement_table(
 
     anomaly_mask = result["is_anomaly"]
 
-    base_models = [
-        col for col in score_detail.columns
-        if col != "Final Score"
-    ]
+    flags = flag_per_model(score_detail, anomaly_mask.mean())
 
     rows = []
 
-    for col in base_models:
-        threshold = np.quantile(
-            score_detail[col],
-            1 - anomaly_mask.mean()
-        )
-
-        model_detected = score_detail[col] >= threshold
+    for col in flags.columns:
+        model_detected = flags[col]
 
         rows.append(
             {
@@ -899,30 +933,14 @@ def plot_model_agreement(
 
     anomaly_mask = result["is_anomaly"]
 
-    base_models = [
-        col for col in score_detail.columns
-        if col != "Final Score"
-    ]
+    flags = flag_per_model(score_detail, anomaly_mask.mean())
+    n_models = flags.shape[1]
 
-    agreement_counts = []
-
-    for idx in score_detail.index:
-        count = 0
-
-        for col in base_models:
-            threshold = np.quantile(
-                score_detail[col],
-                1 - anomaly_mask.mean()
-            )
-
-            if score_detail.loc[idx, col] >= threshold:
-                count += 1
-
-        agreement_counts.append(count)
-
+    # 각 시점에서 '이상'으로 플래그한 모델 수를 한 번에 합산(벡터화).
+    # 기존에는 동일한 분위수 임계값을 시점×모델 수만큼 반복 계산했다.
     agreement_df = pd.DataFrame(
         {
-            "동의 모델 수": agreement_counts,
+            "동의 모델 수": flags.sum(axis=1).to_numpy(),
             "is_anomaly": anomaly_mask.values,
         },
         index=score_detail.index,
@@ -935,7 +953,7 @@ def plot_model_agreement(
     fig.add_trace(
         go.Histogram(
             x=anomaly_agree["동의 모델 수"],
-            nbinsx=len(base_models),
+            nbinsx=max(1, n_models),
             name="Detected Anomaly",
         )
     )
@@ -1163,13 +1181,15 @@ st.divider()
 # ------------------------------------------------------------
 try:
     with st.spinner("이상탐지 수행 중..."):
-        result, score_detail = detect_anomalies(
+        # 무거운 점수 계산은 캐시되며 target_ratio에 의존하지 않는다.
+        # 임계값(슬라이더)만 바꾸면 가벼운 apply_threshold만 다시 돈다.
+        score_detail = compute_anomaly_scores(
             ts_df,
             method=method,
-            target_ratio=target_ratio,
             rolling_window=int(rolling_window),
             include_rolling=include_rolling,
         )
+        result = apply_threshold(score_detail, target_ratio)
 
         eval_result = evaluate_with_synthetic_injection(
             ts_df,
