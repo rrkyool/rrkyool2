@@ -1287,7 +1287,7 @@ with tab1:
             high_corr_display,
             use_container_width=True,
             hide_index=True,
-            height=500,
+            # height=300,
         )
     
         st.caption(
@@ -1302,7 +1302,7 @@ with tab1:
             acf_df,
             use_container_width=True,
             hide_index=True,
-            #height=300,
+            # height=300,
         )
     
         st.caption(
