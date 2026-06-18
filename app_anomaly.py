@@ -1091,123 +1091,69 @@ st.divider()
 # ------------------------------------------------------------
 with st.container(border=True):
 
-    st.markdown("### 데이터 업로드 & 분석 조건 설정")
+    st.markdown("### 데이터 업로드 & 분석 설정")
 
-    left_panel, right_panel = st.columns([1.15, 1])
+    uploaded_file = st.file_uploader(
+        "CSV 파일 업로드",
+        type=["csv"],
+        help="파일이 변경되면 자동으로 새로운 이상탐지를 수행합니다.",
+    )
 
-    # ========================================================
-    # LEFT : 1. 데이터 업로드 / 2. 분석 설정
-    # ========================================================
-    with left_panel:
+    if uploaded_file is None:
+        st.info("CSV 파일을 업로드하면 분석 설정이 활성화됩니다.")
+        st.stop()
 
-        # ----------------------------------------------------
-        # 1. 데이터 업로드
-        # ----------------------------------------------------
-        with st.container(border=True, height=200):
-            uploaded_file = st.file_uploader(
-                "CSV 파일 업로드",
-                type=["csv"],
-                help="파일이 변경되면 자동으로 새로운 이상탐지를 수행합니다.",
-            )
+    # 파일 업로드 후 데이터 로드
+    try:
+        current_hash = get_file_fingerprint(uploaded_file)
 
-            if uploaded_file is None:
-                st.info("CSV 파일을 업로드하면 분석 설정과 세부 설정이 활성화됩니다.")
-                st.stop()
+        if st.session_state.get("file_hash") != current_hash:
+            reset_state_for_new_file(current_hash)
 
-        # ----------------------------------------------------
-        # 파일 업로드 후 데이터 로드
-        # ----------------------------------------------------
-        try:
-            current_hash = get_file_fingerprint(uploaded_file)
+        raw_df = load_csv(uploaded_file)
+        auto_time_col = find_datetime_column(raw_df)
+        ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
 
-            if st.session_state.get("file_hash") != current_hash:
-                reset_state_for_new_file(current_hash)
+    except Exception as e:
+        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
+        st.stop()
 
-            raw_df = load_csv(uploaded_file)
+    st.caption(
+        "Isolation Forest · Robust Z-Score · PCA Reconstruction을 결합한 "
+        "Ensemble 모델로 이상을 탐지합니다."
+    )
 
-            auto_time_col = find_datetime_column(raw_df)
+    set_col, view_col = st.columns([1, 1.5])
 
-            ts_df, meta = prepare_time_dataframe(raw_df, auto_time_col)
+    with set_col:
+        target_ratio = st.number_input(
+            "목표 이상 비율 (상위 분위수 컷)",
+            min_value=0.005,
+            max_value=0.300,
+            value=0.050,
+            step=0.005,
+            format="%.3f",
+            help="최종 이상 점수의 상위 이 비율을 이상으로 판정합니다. "
+                 "예: 0.05 → 상위 5%(=95분위) 이상.",
+        )
 
-            max_window = max(3, min(200, len(ts_df) // 2))
-            default_window = min(24, max(3, len(ts_df) // 10))
+    with view_col:
+        selected_cols = st.multiselect(
+            "시계열 그래프 표시 변수",
+            list(ts_df.columns),
+            default=list(ts_df.columns[: min(4, len(ts_df.columns))]),
+        )
 
-        except Exception as e:
-            st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
-            st.stop()
+    st.caption(
+        f"최종 이상 점수의 상위 **{target_ratio * 100:.1f}%** 시점을 이상으로 판정합니다."
+    )
 
-        # ----------------------------------------------------
-        # 2. 분석 설정
-        # ----------------------------------------------------
-        with st.container(border=True, height=240):
-            st.markdown("#### 분석 설정")
-            method = "Ensemble"
-            target_ratio = st.number_input(
-                "목표 이상 비율 (상위 분위수 컷)",
-                min_value=0.005,
-                max_value=0.300,
-                value=0.050,
-                step=0.005,
-                format="%.3f",
-                help="최종 이상 점수의 상위 이 비율을 이상으로 판정합니다. "
-                     "예: 0.05 → 상위 5%(=95분위) 이상.",
-            )
-
-            st.caption(
-                f"최종 이상 점수의 상위 **{target_ratio * 100:.1f}%** 시점을 "
-                "이상으로 판정합니다."
-            )
-
-    # ========================================================
-    # RIGHT : 3. 세부 설정
-    # ========================================================
-    with right_panel:
-
-        with st.container(border=True, height=455):
-            st.markdown("#### 세부 설정")
-
-            st.info(
-                    "Isolation Forest, Robust Z-Score, PCA Reconstruction을 결합한 Ensemble 모델로 이상 탐지"
-                )
-
-            c3, c4 = st.columns(2)
-
-            with c3:
-                rolling_window = st.number_input(
-                    "Rolling window",
-                    min_value=3,
-                    max_value=max_window,
-                    value=default_window,
-                    step=1,
-                )
-
-            with c4:
-                corr_threshold = st.number_input(
-                    "상관관계 표시 기준",
-                    min_value=0.1,
-                    max_value=0.99,
-                    value=0.7,
-                    step=0.05,
-                )
-
-            include_rolling = st.checkbox(
-                "Rolling 통계 feature 포함",
-                value=True,
-            )
-
-            selected_cols = st.multiselect(
-                "시계열 그래프 표시 변수",
-                list(ts_df.columns),
-                default=list(ts_df.columns[: min(4, len(ts_df.columns))]),
-            )
-
-            top_n = st.number_input(
-                "기여도 변수 수",
-                min_value=3,
-                max_value=min(30, len(ts_df.columns)),
-                value=min(12, len(ts_df.columns)),
-                step=1,
-            )
+# 화면에서 제거한 컨트롤은 고정 기본값으로 대체 (동작은 그대로 유지)
+method = "Ensemble"
+rolling_window = min(24, max(3, len(ts_df) // 10))
+include_rolling = True
+corr_threshold = 0.7
+top_n = min(12, len(ts_df.columns))
 
 st.divider()
 
