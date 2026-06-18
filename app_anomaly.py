@@ -1141,10 +1141,8 @@ with st.container(border=True):
         # ----------------------------------------------------
         with st.container(border=True, height=240):
             st.markdown("#### 분석 설정")
-
             method = "Ensemble"
-
-            target_ratio = st.slider(
+            target_ratio = st.number_input(
                 "목표 이상 비율 (상위 분위수 컷)",
                 min_value=0.005,
                 max_value=0.300,
@@ -1157,8 +1155,7 @@ with st.container(border=True):
 
             st.caption(
                 f"최종 이상 점수의 상위 **{target_ratio * 100:.1f}%** 시점을 "
-                "이상으로 판정합니다. 기존 contamination(자동) / 수동 분위수 "
-                "컨트롤은 동일한 분위수 컷을 중복 노출한 것이라 하나로 통합했습니다."
+                "이상으로 판정합니다.
             )
 
     # ========================================================
@@ -1346,9 +1343,6 @@ with tab1:
         st.caption(
             """
             자기상관이 강한 lag는 추세 또는 주기성을 시사합니다.
-            (차분하지 않은 비정상 시계열은 추세만으로도 lag-1 자기상관이
-            높게 나오므로, 주기성으로 단정하기 전에 추세 여부를 함께 확인하세요.)
-            '추천 Rolling Window'는 참고용 제안값이며 자동 적용되지는 않습니다.
             """
         )
 
@@ -1373,12 +1367,6 @@ with tab2:
                     selected_cols
                 ),
                 use_container_width=True,
-            )
-
-            st.caption(
-                "변수마다 스케일이 달라, 표시할 때만 각 변수를 z-score로 정규화해 "
-                "움직임을 같은 축에서 비교합니다. 원본값은 선 위에 마우스를 올리면 "
-                "확인할 수 있으며, 이상 판정은 원본 기준으로 수행됩니다."
             )
 
     with c2:
