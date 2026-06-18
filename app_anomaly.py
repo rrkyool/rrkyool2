@@ -108,13 +108,51 @@ def reset_state_for_new_file(file_hash: str):
 # ------------------------------------------------------------
 # 2. 시간 컬럼 자동 감지 / 전처리
 # ------------------------------------------------------------
+def _robust_to_datetime(s: pd.Series) -> pd.Series:
+    """일/월 순서가 모호한 날짜 문자열(예: DD-MM-YYYY)도 견고하게 파싱한다.
+
+    기본 해석과 dayfirst=True 해석을 모두 시도해 유효 변환이 더 많은 쪽을
+    택한다. 캐글 Walmart 데이터처럼 '05-02-2010'(=2010-02-05) 형식이면
+    기본 해석은 다수를 NaT로 떨구지만 dayfirst 해석은 모두 살린다.
+    """
+    parsed_default = pd.to_datetime(s, errors="coerce")
+    parsed_dayfirst = pd.to_datetime(s, errors="coerce", dayfirst=True)
+
+    if parsed_dayfirst.notna().sum() > parsed_default.notna().sum():
+        return parsed_dayfirst
+    return parsed_default
+
+
 def find_datetime_column(df: pd.DataFrame) -> Optional[str]:
+    """문자열/객체형 컬럼 중에서만 시간 컬럼 후보를 찾는다.
+
+    숫자형 컬럼(정수 인덱스·ID·Store 번호·0/1 플래그 등)을 to_datetime에 넣으면
+    값이 '에폭(1970-01-01) 이후 나노초'로 해석돼 모든 행이 1970년 0초 근처로
+    뭉친다. 특히 값이 모두 고유한 숫자 컬럼은 unique_ratio가 1.0이라 실제 날짜
+    컬럼을 제치고 1순위가 되어 시계열 그래프의 x축이 통째로 망가진다. 따라서
+    숫자형은 후보에서 제외하고, 파싱 결과가 사실상 한 점으로 뭉친 경우도 거른다.
+    """
     candidate_scores = []
 
     for col in df.columns:
-        parsed = pd.to_datetime(df[col], errors="coerce")
+        # 숫자형 컬럼은 시간으로 오인되기 쉬우므로 후보에서 제외
+        if pd.api.types.is_numeric_dtype(df[col]):
+            continue
+
+        parsed = _robust_to_datetime(df[col])
         valid_ratio = parsed.notna().mean()
-        unique_ratio = parsed.nunique(dropna=True) / max(1, len(parsed))
+
+        if valid_ratio < 0.7:
+            continue
+
+        valid = parsed.dropna()
+
+        # 파싱 결과가 한 점으로 뭉치면(고유값<2 또는 전체 범위 1분 미만)
+        # 정상적인 시간축이 될 수 없으므로 제외
+        if valid.nunique() < 2 or (valid.max() - valid.min()) < pd.Timedelta(minutes=1):
+            continue
+
+        unique_ratio = valid.nunique() / max(1, len(parsed))
 
         name_bonus = 0.15 if any(
             k in str(col).lower()
@@ -126,7 +164,7 @@ def find_datetime_column(df: pd.DataFrame) -> Optional[str]:
 
     candidate_scores.sort(reverse=True)
 
-    if candidate_scores and candidate_scores[0][1] >= 0.7:
+    if candidate_scores:
         return candidate_scores[0][2]
 
     return None
@@ -137,7 +175,7 @@ def prepare_time_dataframe(df: pd.DataFrame, time_col: Optional[str]) -> Tuple[p
     work = df.copy()
 
     if time_col and time_col in work.columns:
-        work[time_col] = pd.to_datetime(work[time_col], errors="coerce")
+        work[time_col] = _robust_to_datetime(work[time_col])
         work = work.dropna(subset=[time_col])
         work = work.sort_values(time_col)
         work = work.drop_duplicates(subset=[time_col], keep="first")
@@ -437,7 +475,7 @@ def calc_acf_summary(
             best_corr = float(lag_values[best_lag - 1])
 
             if abs(best_corr) >= 0.7:
-                interpretation = "강한 주기/반복 패턴"
+                interpretation = "강한 자기상관 (추세 또는 주기성)"
             elif abs(best_corr) >= 0.4:
                 interpretation = "중간 수준 자기상관"
             else:
@@ -1287,7 +1325,7 @@ with tab1:
             high_corr_display,
             use_container_width=True,
             hide_index=True,
-            # height=300,
+            # height=500,
         )
     
         st.caption(
@@ -1302,14 +1340,15 @@ with tab1:
             acf_df,
             use_container_width=True,
             hide_index=True,
-            # height=300,
+            #height=300,
         )
     
         st.caption(
             """
-            자기상관이 강한 lag는
-            반복 패턴이나 주기성을 의미.
-            Rolling window 설정 시 참고 가능.
+            자기상관이 강한 lag는 추세 또는 주기성을 시사합니다.
+            (차분하지 않은 비정상 시계열은 추세만으로도 lag-1 자기상관이
+            높게 나오므로, 주기성으로 단정하기 전에 추세 여부를 함께 확인하세요.)
+            '추천 Rolling Window'는 참고용 제안값이며 자동 적용되지는 않습니다.
             """
         )
 
@@ -1485,8 +1524,10 @@ with tab3:
     m1, m2, m3, m4 = st.columns(4)
 
     m1.metric(
-        "탐지 이상 비율",
-        f"{quality['anomaly_ratio']:.2f}%"
+        "탐지 이상 비율 (목표 설정값)",
+        f"{quality['anomaly_ratio']:.2f}%",
+        help="발견된 이상 개수가 아니라 '목표 이상 비율' 슬라이더로 정한 민감도입니다. "
+             "분위수 컷이라 설정값과 거의 같게 나옵니다. 결과가 아니라 입력으로 해석하세요.",
     )
 
     m2.metric(
@@ -1594,9 +1635,14 @@ with tab3:
 
         st.markdown(
             """
-            - **PR-AUC / point-adjusted F1**(합성 주입)은 탐지기의 민감도를 보는
-              유일한 정량 지표이므로 가장 우선해서 참고합니다.
-            - **탐지 이상 비율**이 너무 높으면 과탐지 가능성이 있습니다.
+            - **PR-AUC**(합성 주입)를 1순위 정량 지표로 봅니다. 불균형 환경에서
+              ROC-AUC보다 신뢰할 수 있어 탐지 민감도의 핵심 근거로 삼습니다.
+            - **point-adjusted F1**은 보조 지표입니다. 구간 내 한 시점만 맞혀도
+              구간 전체를 정답으로 인정해 성능이 부풀려질 수 있으므로, raw F1과
+              함께 참고하되 PR-AUC를 우선합니다.
+            - **탐지 이상 비율**은 발견된 값이 아니라 운영자가 '목표 이상 비율'
+              슬라이더로 직접 정한 민감도입니다(분위수 컷이라 설정값과 거의 같음).
+              따라서 결과가 아니라 입력으로 해석하며, 운영 목적에 맞게 조정합니다.
             - **고신뢰 이상 비율**은 여러 개별 모델이 동시에 이상으로 판단한
               비율로, 값이 높을수록 앙상블 내부 일관성이 큽니다.
             - **Ljung-Box p-value**는 보조 지표입니다. rolling feature 자체가
