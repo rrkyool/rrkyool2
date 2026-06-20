@@ -628,11 +628,7 @@ def anomaly_quality_summary(
             else np.nan
         )
 
-        high_confidence_ratio = (
-            (model_agreement[anomaly_mask] >= 0.67).mean() * 100
-            if anomaly_mask.sum() > 0
-            else np.nan
-        )
+        high_confidence_ratio = (model_agreement[anomaly_mask] >= (2/3 - 1e-9)).mean() * 100
     else:
         avg_agreement_anomaly = np.nan
         high_confidence_ratio = np.nan
