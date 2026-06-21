@@ -1116,7 +1116,7 @@ with st.container(border=True):
 
     st.caption(
         "Isolation Forest · Robust Z-Score · PCA Reconstruction을 결합한 "
-        "Ensemble 모델로 이상을 탐지합니다."
+        "Ensemble 모델로 이상 탐지"
     )
 
     set_col, view_col = st.columns([1, 1.5])
@@ -1266,10 +1266,6 @@ with tab1:
             hide_index=True,
             # height=500,
         )
-    
-        st.caption(
-            "상관계수가 높은 변수쌍은 PCA Reconstruction 기반 탐지에서 함께 변동하는 구조를 해석하는 데 참고할 수 있습니다."
-        )
         
     with c4:
 
@@ -1324,13 +1320,6 @@ with tab2:
                 use_container_width=True,
             )
     
-            st.caption(
-                """
-                각 모델의 이상 점수를 순위 기반으로 [0,1] 정규화한 뒤,
-                평균값을 Final Score로 사용합니다.
-                Threshold 이상인 시점을 최종 이상으로 판단합니다.
-                """
-            )
     c3, c4 = st.columns([1, 1])
 
     with c3:
@@ -1472,13 +1461,6 @@ with tab3:
                 use_container_width=True,
             )
 
-            st.caption(
-                """
-                정상 시점과 이상 시점의 anomaly score 분포가 잘 분리될수록
-                임계값 기준이 비교적 명확하다고 볼 수 있음
-                """
-            )
-
     with c2:
         with st.container(border=True):
 
@@ -1492,12 +1474,6 @@ with tab3:
                 use_container_width=True,
             )
 
-            st.caption(
-                """
-                여러 개별 모델이 동시에 이상으로 판단한 시점일수록
-                상대적으로 신뢰도가 높은 이상 후보
-                """
-            )
 
     c3, c4 = st.columns([1, 1])
 
@@ -1539,28 +1515,3 @@ with tab3:
                     이상 후보가 비교적 산발적으로 분포했을 가능성
                     """
                 )
-
-    st.divider()
-
-    with st.container(border=True):
-
-        st.markdown("#### 📑품질 진단 해석 가이드")
-
-        st.markdown(
-            """
-            - **PR-AUC**(합성 주입)를 1순위 정량 지표로 봅니다. 불균형 환경에서
-              ROC-AUC보다 신뢰할 수 있어 탐지 민감도의 핵심 근거로 삼습니다.
-            - **point-adjusted F1**은 보조 지표입니다. 구간 내 한 시점만 맞혀도
-              구간 전체를 정답으로 인정해 성능이 부풀려질 수 있으므로, raw F1과
-              함께 참고하되 PR-AUC를 우선합니다.
-            - **탐지 이상 비율**은 발견된 값이 아니라 운영자가 '목표 이상 비율'
-              슬라이더로 직접 정한 민감도입니다(분위수 컷이라 설정값과 거의 같음).
-              따라서 결과가 아니라 입력으로 해석하며, 운영 목적에 맞게 조정합니다.
-            - **고신뢰 이상 비율**은 여러 개별 모델이 동시에 이상으로 판단한
-              비율로, 값이 높을수록 앙상블 내부 일관성이 큽니다.
-            - **Ljung-Box p-value**는 보조 지표입니다. rolling feature 자체가
-              자기상관을 주입하므로, 낮은 p-value를 곧바로 이상의 시간적 군집으로
-              해석하지 않도록 주의합니다.
-            - 정답 라벨이 없는 환경에서는 이 지표들을 종합해 탐지 결과의 타당성을 판단합니다.
-            """
-        )
