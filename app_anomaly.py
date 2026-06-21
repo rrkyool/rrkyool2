@@ -1294,7 +1294,7 @@ with tab2:
     c1, c2 = st.columns([1.4, 1])
 
     with c1:
-        with st.container(border=True, height = 500):
+        with st.container(border=True, height = 530):
 
             st.markdown("#### 탐지된 이상 시점")
 
@@ -1308,7 +1308,7 @@ with tab2:
             )
 
     with c2:
-        with st.container(border=True, height = 500):
+        with st.container(border=True, height = 530):
     
             st.markdown("#### 모델별 이상 점수 및 최종 점수")
     
