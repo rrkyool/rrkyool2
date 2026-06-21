@@ -1323,7 +1323,7 @@ with tab2:
     c3, c4 = st.columns([1, 1])
 
     with c3:
-        with st.container(border=True, height = 480):
+        with st.container(border=True, height = 450):
 
             st.markdown("#### 이상 점수 분포")
 
@@ -1333,7 +1333,7 @@ with tab2:
             )
 
     with c4:
-        with st.container(border=True, height = 480):
+        with st.container(border=True, height = 450):
 
             st.markdown("#### 주요 기여 변수")
 
